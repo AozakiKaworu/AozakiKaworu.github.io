@@ -185,6 +185,14 @@
             color: #2d3436;
         }
 
+        .state-duration {
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            background: #16213e;
+            color: #a29bfe;
+        }
+
         .permission-help {
             display: none;
             max-width: 720px;
@@ -244,6 +252,7 @@
         <span class="status loading" id="status">⏳ 加载模型中...</span>
         <span class="face-count" id="faceCount">检测到: 0 人</span>
         <span class="classroom-status away" id="classroomStatus">课堂状态：离开</span>
+        <span class="state-duration" id="stateDuration">持续：--</span>
         <span class="fps" id="fps">FPS: --</span>
     </div>
 
@@ -273,6 +282,7 @@
         const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model';
 
         const classroomStatusEl = document.getElementById('classroomStatus');
+        const stateDurationEl = document.getElementById('stateDuration');
 
         let currentStream = null;
         let lastTime = performance.now();
@@ -283,6 +293,10 @@
         // 课堂状态追踪
         let noFaceSince = null;          // 首次检测不到脸的时间戳（null 表示当前有脸）
         const AWAY_THRESHOLD_MS = 3000;  // 连续 3 秒无人脸 → 离开
+
+        // 状态时长追踪
+        let currentClassroomState = 'away';  // 当前课堂状态
+        let stateChangedAt = Date.now();     // 状态切换的时间戳
 
         function updateClassroomStatus(faceCount) {
             let state, cssClass, text;
@@ -316,7 +330,20 @@
 
                 const labels = { present: '课堂状态：在座', away: '课堂状态：离开', multi: '课堂状态：多人' };
                 classroomStatusEl.textContent = labels[state];
+
+                // 记录状态变化
+                currentClassroomState = state;
+                stateChangedAt = Date.now();
+                updateDurationDisplay();
             }
+        }
+
+        // 格式化时长显示
+        function updateDurationDisplay() {
+            const elapsed = Math.floor((Date.now() - stateChangedAt) / 1000);
+            const mm = Math.floor(elapsed / 60);
+            const ss = elapsed % 60;
+            stateDurationEl.textContent = `持续：${mm}分${String(ss).padStart(2, '0')}秒`;
         }
 
         function showCameraError(err) {
@@ -519,6 +546,9 @@
 
         // ---------- 镜像开关 ----------
         mirrorCheckbox.addEventListener('change', applyMirror);
+
+        // 每秒刷新状态持续时间
+        setInterval(updateDurationDisplay, 1000);
 
         // ---------- 主流程 ----------
         (async function main() {
