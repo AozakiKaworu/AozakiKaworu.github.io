@@ -327,7 +327,7 @@
 
     <!-- MediaPipe Tasks Vision -->
     <script type="module">
-        import { FaceDetector, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
+        import { FaceDetector, FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
 
         // ========== DOM 元素 ==========
         const video = document.getElementById('video');
@@ -351,9 +351,11 @@
         // ========== MediaPipe 配置 ==========
         const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
         const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite";
+        const LANDMARKER_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
 
         // ========== 全局状态 ==========
         let faceDetector = null;
+        let faceLandmarker = null;
         let currentStream = null;
         let lastTime = performance.now();
         let frameCount = 0;
@@ -548,30 +550,50 @@
             const vision = await FilesetResolver.forVisionTasks(WASM_URL);
             console.log('✅ WASM 运行时就绪');
 
-            // IMAGE 模式：支持传入 canvas，用于分块检测
+            // 并行加载 FaceDetector + FaceLandmarker
             let delegate = 'GPU';
-            const baseOptions = (d) => ({
+            const detectorOpts = (d) => ({
                 baseOptions: { modelAssetPath: MODEL_URL, delegate: d },
                 runningMode: 'IMAGE',
                 minDetectionConfidence: 0.3
             });
+            const landmarkerOpts = (d) => ({
+                baseOptions: { modelAssetPath: LANDMARKER_URL, delegate: d },
+                runningMode: 'IMAGE',
+                numFaces: 1,
+                minFaceDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
 
             try {
-                faceDetector = await FaceDetector.createFromOptions(vision, baseOptions('GPU'));
+                [faceDetector, faceLandmarker] = await Promise.all([
+                    FaceDetector.createFromOptions(vision, detectorOpts('GPU')),
+                    FaceLandmarker.createFromOptions(vision, landmarkerOpts('GPU'))
+                ]);
             } catch (gpuErr) {
                 console.warn('⚠️ GPU 不可用，降级为 CPU:', gpuErr.message || gpuErr);
                 delegate = 'CPU';
-                faceDetector = await FaceDetector.createFromOptions(vision, baseOptions('CPU'));
+                [faceDetector, faceLandmarker] = await Promise.all([
+                    FaceDetector.createFromOptions(vision, detectorOpts('CPU')),
+                    FaceLandmarker.createFromOptions(vision, landmarkerOpts('CPU'))
+                ]);
             }
 
-            debugEngine.textContent = `引擎: MediaPipe IMAGE (${delegate})`;
-            console.log(`✅ 模型加载成功 (${delegate}, IMAGE 模式, 检测器置信度 0.3)`);
+            debugEngine.textContent = `引擎: Detector+Landmarker IMAGE (${delegate})`;
+            console.log(`✅ 双模型加载成功 (${delegate})`);
         }
 
         // ========== 人脸检测 + 绘制 ==========
         // 6 关键点名称（blaze_face_short_range）
         const KEYPOINT_NAMES = ['左眼', '右眼', '鼻尖', '嘴', '左耳', '右耳'];
         const KEYPOINT_COLORS = ['#00e5ff', '#00e5ff', '#ffea00', '#ff6d00', '#76ff03', '#76ff03'];
+
+        // Head pose estimation: landmark indices (Face Landmarker 468-point model)
+        const LM_NOSE_TIP = 1;
+        const LM_FOREHEAD = 10;     // glabella, between eyebrows
+        const LM_CHIN = 152;        // lowest point on chin
+        const LM_LEFT_EYE = 33;     // left eye outer corner
+        const LM_RIGHT_EYE = 263;   // right eye outer corner
 
         // ---- 工具：video → canvas ----
         function videoToCanvas(targetCanvas) {
@@ -687,6 +709,73 @@
             }
 
             return merged;
+        }
+
+        // ========== 头部姿态估计（Face Landmarker） ==========
+        function estimateHeadPoseFromLandmarks(landmarks) {
+            if (!landmarks || landmarks.length < 264) return null;
+
+            const nose = landmarks[LM_NOSE_TIP];
+            const forehead = landmarks[LM_FOREHEAD];
+            const chin = landmarks[LM_CHIN];
+            const leftEye = landmarks[LM_LEFT_EYE];
+            const rightEye = landmarks[LM_RIGHT_EYE];
+
+            if (!nose || !forehead || !chin || !leftEye || !rightEye) return null;
+
+            // 眼中心
+            const eyeMidY = (leftEye.y + rightEye.y) / 2;
+
+            // pitch 比率：鼻尖相对于眼-下巴的位置
+            // 正常 ≈0.43，低头时鼻子靠近眼睛(↓)，抬头时鼻子远离(↑)
+            const eyeToChin = chin.y - eyeMidY;
+            const eyeToNose = nose.y - eyeMidY;
+            const pitchRatio = eyeToChin > 0 ? eyeToNose / eyeToChin : 0;
+
+            // yaw 估计：鼻尖水平偏移 vs 眼中心
+            const eyeMidX = (leftEye.x + rightEye.x) / 2;
+            const noseOffsetX = nose.x - eyeMidX;
+            const eyeWidth = Math.abs(rightEye.x - leftEye.x);
+            const yawRatio = eyeWidth > 0 ? noseOffsetX / eyeWidth : 0;
+
+            // 分类
+            let headState;
+            if (pitchRatio < 0.33) headState = 'down';        // 低头
+            else if (pitchRatio > 0.52) headState = 'up';     // 抬头
+            else if (Math.abs(yawRatio) > 0.18) headState = 'side'; // 侧脸
+            else headState = 'normal';
+
+            return {
+                pitchRatio: pitchRatio.toFixed(2),
+                yawRatio: yawRatio.toFixed(2),
+                state: headState,
+                label: { down: '低头', up: '抬头', side: '侧脸', normal: '正常' }[headState]
+            };
+        }
+
+        async function runFaceLandmarker(sourceCanvas, faceBox) {
+            if (!faceLandmarker) return null;
+            // 裁剪人脸区域
+            const fx = Math.max(0, Math.floor(faceBox.originX));
+            const fy = Math.max(0, Math.floor(faceBox.originY));
+            const fw = Math.ceil(faceBox.width);
+            const fh = Math.ceil(faceBox.height);
+
+            const faceCanvas = document.createElement('canvas');
+            faceCanvas.width = fw;
+            faceCanvas.height = fh;
+            const faceCtx = faceCanvas.getContext('2d', { willReadFrequently: true });
+            faceCtx.drawImage(sourceCanvas, fx, fy, fw, fh, 0, 0, fw, fh);
+
+            try {
+                const result = faceLandmarker.detect(faceCanvas);
+                if (result.faceLandmarks && result.faceLandmarks.length > 0) {
+                    return estimateHeadPoseFromLandmarks(result.faceLandmarks[0]);
+                }
+            } catch (e) {
+                // 静默失败
+            }
+            return null;
         }
 
         // ========== 人脸跟踪 + 平滑 + 三层过滤 ==========
@@ -818,10 +907,12 @@
 
             // === 标签 ===
             let label;
-            if (isReliable) {
+            if (isReliable && track.headPose) {
+                label = `${track.headPose.label} ${(score * 100).toFixed(0)}%`;
+            } else if (isReliable) {
                 label = `${(score * 100).toFixed(0)}%`;
             } else {
-                label = `${(score * 100).toFixed(0)}%`;
+                label = `远距 ${(score * 100).toFixed(0)}%`;
             }
 
             ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
@@ -929,6 +1020,21 @@
             // === 跟踪管道：过滤 + 平滑 + 去抖 ===
             const confirmedFaces = matchDetections(detections);
 
+            // === Face Landmarker：仅可靠人脸 ≥100px ===
+            const fullCanvas = document.createElement('canvas');
+            let fullCanvasReady = false;
+            for (const face of confirmedFaces) {
+                if (face._class === 'reliable' && face.box.width >= 100 && face.box.height >= 100) {
+                    if (!fullCanvasReady) {
+                        videoToCanvas(fullCanvas);
+                        fullCanvasReady = true;
+                    }
+                    face.headPose = await runFaceLandmarker(fullCanvas, face.box);
+                } else {
+                    face.headPose = null;
+                }
+            }
+
             const reliableFaces = confirmedFaces.filter(f => f._class === 'reliable');
             const distantFaces = confirmedFaces.filter(f => f._class === 'distant');
 
@@ -936,7 +1042,8 @@
             if (now - debugLastLog >= 1000) {
                 console.log(`🔍 [${detectionMode}] 原始: ${detections.length} | 跟踪确认: ${confirmedFaces.length} (可靠: ${reliableFaces.length}, 远距: ${distantFaces.length})`);
                 confirmedFaces.forEach((t, i) => {
-                    console.log(`  人脸 ${i + 1}: ${t._class} 置信度 ${(t.score * 100).toFixed(1)}% 框 ${Math.round(t.box.width)}×${Math.round(t.box.height)} 确认${t.confirmed}帧`);
+                    const hp = t.headPose ? ` [${t.headPose.label} p${t.headPose.pitchRatio}]` : '';
+                    console.log(`  人脸 ${i + 1}: ${t._class}${hp} 置信度 ${(t.score * 100).toFixed(1)}% 框 ${Math.round(t.box.width)}×${Math.round(t.box.height)} 确认${t.confirmed}帧`);
                 });
                 debugLastLog = now;
             }
@@ -951,8 +1058,16 @@
             // 绘制（仅已确认的跟踪人脸）
             confirmedFaces.forEach(t => drawOneDetection(t, displayWidth));
 
-            // 更新 UI：只统计已确认的人脸
-            faceCountEl.textContent = `检测到: ${confirmedFaces.length} 人 (可靠${reliableFaces.length})`;
+            // 更新 UI：人数 + 头部姿态概要
+            const withPose = confirmedFaces.filter(f => f.headPose && f.headPose.state !== 'normal');
+            const downCount = withPose.filter(f => f.headPose.state === 'down').length;
+            const upCount = withPose.filter(f => f.headPose.state === 'up').length;
+            let faceSummary = `检测到: ${confirmedFaces.length} 人`;
+            if (reliableFaces.length > 0) faceSummary += ` (清晰${reliableFaces.length}`;
+            if (downCount > 0) faceSummary += ` 低头${downCount}`;
+            if (upCount > 0) faceSummary += ` 抬头${upCount}`;
+            if (reliableFaces.length > 0) faceSummary += ')';
+            faceCountEl.textContent = faceSummary;
             updateClassroomStatus(confirmedFaces.length);
 
             frameCount++;
