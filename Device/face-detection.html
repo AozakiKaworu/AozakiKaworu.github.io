@@ -383,6 +383,15 @@
             const mm = Math.floor(elapsed / 60);
             const ss = elapsed % 60;
             stateDurationEl.textContent = `持续：${mm}分${String(ss).padStart(2, '0')}秒`;
+            console.log(`⏱ 持续时间刷新: ${mm}分${String(ss).padStart(2, '0')}秒 (stateChangedAt=${stateChangedAt})`);
+        }
+
+        // 立即启动持续时间刷新定时器（不依赖 main 异步流程）
+        if (!durationTimerStarted) {
+            durationTimerStarted = true;
+            updateDurationDisplay();
+            setInterval(updateDurationDisplay, 1000);
+            console.log('✅ 持续时间定时器已启动');
         }
 
         // ========== 摄像头 ==========
@@ -739,13 +748,6 @@
                 permissionHelp.classList.remove('visible');
                 statusEl.textContent = '✅ 检测中';
                 statusEl.className = 'status ready';
-
-                // 启动持续时间刷新定时器（只启动一次）
-                if (!durationTimerStarted) {
-                    durationTimerStarted = true;
-                    updateDurationDisplay();
-                    setInterval(updateDurationDisplay, 1000);
-                }
 
                 if (!detectLoopStarted) {
                     detectLoopStarted = true;
