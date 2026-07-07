@@ -291,6 +291,10 @@
             🪞 镜像翻转
         </label>
         <button class="mode-toggle" id="modeToggleBtn" title="切换大教室分块检测模式">🏫 普通模式</button>
+        <label class="mirror-toggle">
+            <input type="checkbox" id="showBoxCheckbox" checked>
+            👁 显示检测框
+        </label>
     </div>
 
     <div class="container">
@@ -342,6 +346,7 @@
         const debugLastScore = document.getElementById('debugLastScore');
         const debugEngine = document.getElementById('debugEngine');
         const modeToggleBtn = document.getElementById('modeToggleBtn');
+        const showBoxCheckbox = document.getElementById('showBoxCheckbox');
 
         // ========== MediaPipe 配置 ==========
         const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
@@ -388,6 +393,7 @@
         const LOST_FRAMES = 5;      // 连续 5 帧丢失才移除
         const EMA_ALPHA = 0.3;      // 平滑系数 (new=0.3, old=0.7)
         let nextFaceId = 0;
+        let showDetectionBox = true; // 显示检测框开关
 
         // 调试
         let debugLastLog = 0;
@@ -774,7 +780,7 @@
             return trackedFaces.filter(t => t.confirmed >= CONFIRM_FRAMES);
         }
 
-        // ---- 绘制单个检测框（三-tier） ----
+        // ---- 绘制单个检测框（轻量：方案B 仅四角线） ----
         function drawOneDetection(track, displayWidth) {
             const box = track.box;
             const x = box.originX;
@@ -784,24 +790,20 @@
             const score = track.score;
             const tier = track._class || 'distant';
             const isReliable = tier === 'reliable';
-            const isDistant = tier === 'distant';
+
+            if (!showDetectionBox) return; // checkbox 关闭时只统计不画
 
             // 边框颜色：可靠=红，远距离=黄
-            const borderColor = isReliable ? '#ff1744' : '#fdcb6e';
-            const glowColor = isReliable ? '#ff1744' : '#fdcb6e';
-            const fontSize = Math.max(11, displayWidth / 70);
+            const lineColor = isReliable ? 'rgba(255, 82, 82, 0.75)' : 'rgba(253, 203, 110, 0.65)';
+            const lineWidth = Math.max(1, Math.min(2, displayWidth / 700));
 
-            ctx.strokeStyle = borderColor;
-            ctx.lineWidth = Math.max(2, displayWidth / 250);
-            ctx.shadowColor = glowColor;
-            ctx.shadowBlur = isReliable ? 12 : 6;
-            ctx.strokeRect(x, y, w, h);
-            ctx.shadowBlur = 0;
+            // === 方案B：仅四角线，不画完整矩形 ===
+            const cornerLen = Math.min(w, h) * 0.18;
+            ctx.strokeStyle = lineColor;
+            ctx.lineWidth = lineWidth;
+            ctx.shadowColor = lineColor;
+            ctx.shadowBlur = 2;
 
-            // 四角标记
-            const cornerLen = Math.min(w, h) * 0.2;
-            ctx.strokeStyle = isReliable ? '#ff5252' : '#ffe082';
-            ctx.lineWidth = Math.max(3, displayWidth / 150);
             [
                 [x, y, 1, 1], [x + w, y, -1, 1],
                 [x, y + h, 1, -1], [x + w, y + h, -1, -1]
@@ -812,37 +814,38 @@
                 ctx.lineTo(cx + dx * cornerLen, cy);
                 ctx.stroke();
             });
+            ctx.shadowBlur = 0;
 
-            // 标签
+            // === 标签 ===
             let label;
             if (isReliable) {
-                label = `Face ${(score * 100).toFixed(0)}%`;
+                label = `${(score * 100).toFixed(0)}%`;
             } else {
-                label = `远距 ${(score * 100).toFixed(0)}% · 五官不可靠`;
+                label = `${(score * 100).toFixed(0)}%`;
             }
 
-            ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+            ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
             const textWidth = ctx.measureText(label).width;
-            const textHeight = fontSize + 4;
-            const padding = 4;
-            const labelY = y - 8;
+            const textHeight = 14;
+            const padding = 3;
+            const labelY = y - 6;
 
-            const bgColor = isReliable ? 'rgba(255, 23, 68, 0.85)' : 'rgba(180, 120, 20, 0.85)';
+            const bgColor = 'rgba(15, 15, 26, 0.55)';
             const textX = x + padding;
 
             if (labelY - textHeight > 0) {
                 ctx.fillStyle = bgColor;
                 ctx.fillRect(x, labelY - textHeight, textWidth + padding * 2, textHeight + padding);
-                ctx.fillStyle = '#fff';
-                ctx.fillText(label, textX, labelY - 4);
+                ctx.fillStyle = isReliable ? 'rgba(255, 255, 255, 0.85)' : 'rgba(253, 203, 110, 0.85)';
+                ctx.fillText(label, textX, labelY - 3);
             } else {
                 ctx.fillStyle = bgColor;
-                ctx.fillRect(x, y + 2, textWidth + padding * 2, textHeight + padding);
-                ctx.fillStyle = '#fff';
-                ctx.fillText(label, textX, y + textHeight);
+                ctx.fillRect(x, y + 1, textWidth + padding * 2, textHeight + padding);
+                ctx.fillStyle = isReliable ? 'rgba(255, 255, 255, 0.85)' : 'rgba(253, 203, 110, 0.85)';
+                ctx.fillText(label, textX, y + textHeight - 1);
             }
 
-            // 关键点：仅可靠人脸显示
+            // === 关键点：仅可靠人脸 + 显示检测框打开时 ===
             if (isReliable && track.keypoints && track.keypoints.length > 0) {
                 track.keypoints.forEach((kp, idx) => {
                     let kpX = kp.x, kpY = kp.y;
@@ -852,107 +855,18 @@
                     }
                     if (kpX === 0 && kpY === 0) return;
 
-                    const pointSize = Math.max(2, displayWidth / 400);
+                    const pointRadius = 2;
                     ctx.beginPath();
-                    ctx.arc(kpX, kpY, pointSize + 2, 0, 2 * Math.PI);
-                    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-                    ctx.fill();
-                    ctx.beginPath();
-                    ctx.arc(kpX, kpY, pointSize, 0, 2 * Math.PI);
-                    ctx.fillStyle = KEYPOINT_COLORS[idx] || '#fff';
+                    ctx.arc(kpX, kpY, pointRadius, 0, 2 * Math.PI);
+                    ctx.fillStyle = 'rgba(116, 185, 255, 0.7)';
                     ctx.fill();
 
+                    // 标签：更小字体
                     const kpLabel = KEYPOINT_NAMES[idx];
                     if (kpLabel) {
-                        ctx.fillStyle = '#fff';
-                        ctx.font = `${Math.max(8, displayWidth / 100)}px -apple-system, BlinkMacSystemFont, sans-serif`;
-                        ctx.shadowColor = 'rgba(0,0,0,0.8)';
-                        ctx.shadowBlur = 3;
-                        ctx.fillText(kpLabel, kpX + pointSize + 4, kpY + pointSize / 2);
-                        ctx.shadowBlur = 0;
-                    }
-                });
-            }
-        }
-            const box = det.boundingBox;
-            const x = box.originX;
-            const y = box.originY;
-            const w = box.width;
-            const h = box.height;
-            const score = det.categories?.[0]?.score ?? 0;
-
-            // 红色发光边框
-            ctx.strokeStyle = '#ff1744';
-            ctx.lineWidth = Math.max(3, displayWidth / 200);
-            ctx.shadowColor = '#ff1744';
-            ctx.shadowBlur = 12;
-            ctx.strokeRect(x, y, w, h);
-            ctx.shadowBlur = 0;
-
-            // 四角标记
-            const cornerLen = Math.min(w, h) * 0.25;
-            ctx.strokeStyle = '#ff5252';
-            ctx.lineWidth = Math.max(4, displayWidth / 130);
-            [
-                [x, y, 1, 1], [x + w, y, -1, 1],
-                [x, y + h, 1, -1], [x + w, y + h, -1, -1]
-            ].forEach(([cx, cy, dx, dy]) => {
-                ctx.beginPath();
-                ctx.moveTo(cx, cy + dy * cornerLen);
-                ctx.lineTo(cx, cy);
-                ctx.lineTo(cx + dx * cornerLen, cy);
-                ctx.stroke();
-            });
-
-            // 置信度标签
-            const label = `Face ${(score * 100).toFixed(0)}%`;
-            const fontSize = Math.max(12, displayWidth / 60);
-            ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
-            const textWidth = ctx.measureText(label).width;
-            const textHeight = fontSize + 4;
-            const padding = 4;
-            const labelY = y - 8;
-
-            if (labelY - textHeight > 0) {
-                ctx.fillStyle = 'rgba(255, 23, 68, 0.85)';
-                ctx.fillRect(x, labelY - textHeight, textWidth + padding * 2, textHeight + padding);
-                ctx.fillStyle = '#fff';
-                ctx.fillText(label, x + padding, labelY - 4);
-            } else {
-                ctx.fillStyle = 'rgba(255, 23, 68, 0.85)';
-                ctx.fillRect(x, y + 2, textWidth + padding * 2, textHeight + padding);
-                ctx.fillStyle = '#fff';
-                ctx.fillText(label, x + padding, y + textHeight);
-            }
-
-            // 关键点
-            if (det.keypoints && det.keypoints.length > 0) {
-                det.keypoints.forEach((kp, idx) => {
-                    let kpX = kp.x, kpY = kp.y;
-                    if (kpX <= 1 && kpY <= 1 && (kpX > 0 || kpY > 0)) {
-                        kpX *= canvas.width;
-                        kpY *= canvas.height;
-                    }
-                    if (kpX === 0 && kpY === 0) return;
-
-                    const pointSize = Math.max(3, displayWidth / 350);
-                    ctx.beginPath();
-                    ctx.arc(kpX, kpY, pointSize + 2, 0, 2 * Math.PI);
-                    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-                    ctx.fill();
-                    ctx.beginPath();
-                    ctx.arc(kpX, kpY, pointSize, 0, 2 * Math.PI);
-                    ctx.fillStyle = KEYPOINT_COLORS[idx] || '#fff';
-                    ctx.fill();
-
-                    const kpLabel = KEYPOINT_NAMES[idx];
-                    if (kpLabel) {
-                        ctx.fillStyle = '#fff';
-                        ctx.font = `${Math.max(9, displayWidth / 90)}px -apple-system, BlinkMacSystemFont, sans-serif`;
-                        ctx.shadowColor = 'rgba(0,0,0,0.8)';
-                        ctx.shadowBlur = 3;
-                        ctx.fillText(kpLabel, kpX + pointSize + 4, kpY + pointSize / 2);
-                        ctx.shadowBlur = 0;
+                        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+                        ctx.font = '9px -apple-system, BlinkMacSystemFont, sans-serif';
+                        ctx.fillText(kpLabel, kpX + 3, kpY + 1);
                     }
                 });
             }
@@ -1084,6 +998,11 @@
         });
 
         mirrorCheckbox.addEventListener('change', applyMirror);
+
+        showBoxCheckbox.addEventListener('change', () => {
+            showDetectionBox = showBoxCheckbox.checked;
+            console.log(`👁 显示检测框: ${showDetectionBox ? '开启' : '关闭（仅统计人数）'}`);
+        });
 
         retryCameraBtn.addEventListener('click', async () => {
             try {
