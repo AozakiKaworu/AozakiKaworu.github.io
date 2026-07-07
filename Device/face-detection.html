@@ -385,6 +385,10 @@
         let debugRawDetection = true; // true=跳过跟踪直接画 raw box（调试用）
         let nextFaceId = 0;
         let showDetectionBox = true; // 显示检测框开关
+        let latestStatusPayload = null;
+        const BACKEND_STATUS_ENDPOINT = ''; // 后端接口准备位，例如: http://localhost:8000/api/classroom/status
+        const BACKEND_POST_INTERVAL_MS = 1000;
+        let lastBackendPostAt = 0;
 
         // 调试
         let debugLastLog = 0;
@@ -530,7 +534,14 @@
 
             let delegate = 'GPU';
             const detOpts = (d) => ({ baseOptions: { modelAssetPath: MODEL_URL, delegate: d }, runningMode: 'IMAGE', minDetectionConfidence: 0.3 });
-            const lmOpts = (d) => ({ baseOptions: { modelAssetPath: LANDMARKER_URL, delegate: d }, runningMode: 'IMAGE', numFaces: 1, minFaceDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+            const lmOpts = (d) => ({
+                baseOptions: { modelAssetPath: LANDMARKER_URL, delegate: d },
+                runningMode: 'IMAGE',
+                numFaces: 1,
+                minFaceDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5,
+                outputFacialTransformationMatrixes: true
+            });
             const poseOpts = (d) => ({ baseOptions: { modelAssetPath: POSE_URL, delegate: d }, runningMode: 'IMAGE', numPoses: 5, minPoseDetectionConfidence: 0.3, minTrackingConfidence: 0.3 });
 
             try {
@@ -687,7 +698,54 @@
         }
 
         // ========== 头部姿态估计（Face Landmarker） ==========
-        function estimateHeadPoseFromLandmarks(landmarks) {
+        function radToDeg(rad) {
+            return rad * 180 / Math.PI;
+        }
+
+        function getMatrixData(matrix) {
+            if (!matrix) return null;
+            if (Array.isArray(matrix)) return matrix;
+            if (matrix.data) return Array.from(matrix.data);
+            if (matrix.matrix) return Array.from(matrix.matrix);
+            return null;
+        }
+
+        function estimateHeadPoseFromMatrix(matrix) {
+            const m = getMatrixData(matrix);
+            if (!m || m.length < 16) return null;
+
+            // MediaPipe facial transformation matrix is treated as row-major 4x4.
+            // These Euler angles are used as a practical classroom-state signal,
+            // not as a calibrated medical/biometric head-pose measurement.
+            const r00 = m[0], r01 = m[1], r02 = m[2];
+            const r10 = m[4], r11 = m[5], r12 = m[6];
+            const r20 = m[8], r21 = m[9], r22 = m[10];
+
+            const pitch = radToDeg(Math.atan2(-r21, r22));
+            const yaw = radToDeg(Math.atan2(r20, Math.sqrt(r21 * r21 + r22 * r22)));
+            const roll = radToDeg(Math.atan2(-r10, r00));
+
+            if (![pitch, yaw, roll].every(Number.isFinite)) return null;
+
+            let state = 'normal';
+            if (pitch > 18) state = 'down';
+            else if (pitch < -16) state = 'up';
+            else if (Math.abs(yaw) > 32) state = 'side';
+
+            return {
+                source: 'face-matrix',
+                pitch: Number(pitch.toFixed(1)),
+                yaw: Number(yaw.toFixed(1)),
+                roll: Number(roll.toFixed(1)),
+                state,
+                label: { down: '看桌面', up: '抬头', side: '侧脸', normal: '正常' }[state],
+                confidence: Math.max(0, Math.min(1, 1 - Math.min(Math.abs(roll), 45) / 90))
+            };
+        }
+
+        function estimateHeadPoseFromLandmarks(landmarks, matrix) {
+            const matrixPose = estimateHeadPoseFromMatrix(matrix);
+
             if (!landmarks || landmarks.length < 264) return null;
 
             const nose = landmarks[LM_NOSE_TIP];
@@ -713,19 +771,29 @@
             const eyeWidth = Math.abs(rightEye.x - leftEye.x);
             const yawRatio = eyeWidth > 0 ? noseOffsetX / eyeWidth : 0;
 
-            // 分类
-            let headState;
-            if (pitchRatio < 0.33) headState = 'down';        // 低头
-            else if (pitchRatio > 0.52) headState = 'up';     // 抬头
-            else if (Math.abs(yawRatio) > 0.18) headState = 'side'; // 侧脸
-            else headState = 'normal';
+            let landmarkState;
+            if (pitchRatio < 0.33) landmarkState = 'down';
+            else if (pitchRatio > 0.52) landmarkState = 'up';
+            else if (Math.abs(yawRatio) > 0.18) landmarkState = 'side';
+            else landmarkState = 'normal';
 
-            return {
-                pitchRatio: pitchRatio.toFixed(2),
-                yawRatio: yawRatio.toFixed(2),
-                state: headState,
-                label: { down: '低头', up: '抬头', side: '侧脸', normal: '正常' }[headState]
+            const landmarkPose = {
+                source: 'face-landmarks-2d',
+                pitchRatio: Number(pitchRatio.toFixed(2)),
+                yawRatio: Number(yawRatio.toFixed(2)),
+                state: landmarkState,
+                label: { down: '看桌面', up: '抬头', side: '侧脸', normal: '正常' }[landmarkState],
+                confidence: 0.65
             };
+
+            if (!matrixPose) return landmarkPose;
+
+            // Prefer the transformation matrix for clear faces. If the matrix is neutral
+            // but the 2D geometry strongly says side/down, keep the stronger warning.
+            if (matrixPose.state === 'normal' && landmarkPose.state !== 'normal') {
+                return { ...landmarkPose, matrix: matrixPose };
+            }
+            return { ...matrixPose, fallback: landmarkPose };
         }
 
         // Face Landmarker 辅助（仅可靠人脸使用）
@@ -739,7 +807,10 @@
             fctx.drawImage(sourceCanvas, fx, fy, fw, fh, 0, 0, fw, fh);
             try {
                 const r = faceLandmarker.detect(fc);
-                if (r.faceLandmarks && r.faceLandmarks.length > 0) return estimateHeadPoseFromLandmarks(r.faceLandmarks[0]);
+                if (r.faceLandmarks && r.faceLandmarks.length > 0) {
+                    const matrix = r.facialTransformationMatrixes?.[0] || r.facialTransformationMatrixes?.[0]?.data;
+                    return estimateHeadPoseFromLandmarks(r.faceLandmarks[0], matrix);
+                }
             } catch (e) {}
             return null;
         }
@@ -798,29 +869,101 @@
             const hasShoulders = vis(lSh, 0.1) && vis(rSh, 0.1);
 
             if (!hasHead) {
-                if (hasShoulders) return { state: 'sleep', label: '疑似睡觉', detail: '有身体但无头部' };
+                if (hasShoulders) return { source: 'pose', state: 'sleep', label: '疑似睡觉', detail: '有身体但无头部', confidence: 0.55 };
                 return null;
             }
 
-            if (!hasShoulders) return { state: 'unknown', label: '无法判断', detail: '无肩部参考' };
+            if (!hasShoulders) return { source: 'pose', state: 'unknown', label: '无法判断', detail: '无肩部参考', confidence: 0.25 };
 
             // 肩中点 Y
             const midShY = (lSh.y + rSh.y) / 2;
             const noseY = nose.y;
             const eyeMidY = hasEyes ? (lEye.y + rEye.y) / 2 : noseY;
+            const shoulderWidth = Math.abs(rSh.x - lSh.x);
+            const headShoulderGap = midShY - eyeMidY;
+            const normalizedGap = shoulderWidth > 0 ? headShoulderGap / shoulderWidth : headShoulderGap;
 
             // 头部在肩上方 → 抬头；鼻子接近/低于肩线 → 看桌面
-            const headAboveShoulders = eyeMidY < midShY - 0.03;
-            const noseNearShoulder = noseY > midShY - 0.02;
+            const headAboveShoulders = normalizedGap > 0.22;
+            const noseNearShoulder = noseY > midShY - Math.max(0.02, shoulderWidth * 0.08);
 
             if (headAboveShoulders && !noseNearShoulder) {
-                return { state: 'up', label: '抬头', detail: `眼高于肩${((midShY-eyeMidY)*100).toFixed(0)}%` };
+                return {
+                    source: 'pose',
+                    state: 'up',
+                    label: '抬头',
+                    detail: `头肩距${normalizedGap.toFixed(2)}`,
+                    confidence: Math.min(0.9, 0.45 + normalizedGap)
+                };
             }
             if (noseNearShoulder) {
-                return { state: 'down', label: '看桌面', detail: `鼻近肩线` };
+                return {
+                    source: 'pose',
+                    state: 'down',
+                    label: '看桌面',
+                    detail: `鼻近肩线 gap=${normalizedGap.toFixed(2)}`,
+                    confidence: 0.65
+                };
             }
             const rel = noseY > midShY ? '低于' : '高于';
-            return { state: 'unknown', label: '无法判断', detail: `鼻${rel}肩${Math.abs(noseY-midShY).toFixed(3)}` };
+            return { source: 'pose', state: 'unknown', label: '无法判断', detail: `鼻${rel}肩${Math.abs(noseY-midShY).toFixed(3)}`, confidence: 0.35 };
+        }
+
+        function poseToStudyState(poseState) {
+            if (!poseState) return '无法判断';
+            if (poseState.state === 'up') return '抬头';
+            if (poseState.state === 'down') return '看桌面';
+            if (poseState.state === 'sleep') return '疑似睡觉';
+            return '无法判断';
+        }
+
+        function poseAverageVisibility(poseLandmarks) {
+            if (!poseLandmarks || poseLandmarks.length === 0) return 0;
+            const points = [0, 2, 5, 7, 8, 11, 12, 23, 24]
+                .map(i => poseLandmarks[i])
+                .filter(Boolean);
+            if (points.length === 0) return 0;
+            return points.reduce((sum, p) => sum + (p.visibility ?? 0.5), 0) / points.length;
+        }
+
+        function buildPoseBox(poseLandmarks, canvasW, canvasH) {
+            if (!poseLandmarks || poseLandmarks.length < 13) return null;
+
+            const usable = [0, 2, 5, 7, 8, 11, 12, 23, 24]
+                .map(i => poseLandmarks[i])
+                .filter(p => p && (p.visibility === undefined || p.visibility > 0.08));
+
+            const lSh = poseLandmarks[11];
+            const rSh = poseLandmarks[12];
+            const hasShoulders = lSh && rSh &&
+                (lSh.visibility === undefined || lSh.visibility > 0.08) &&
+                (rSh.visibility === undefined || rSh.visibility > 0.08);
+
+            if (usable.length < 2 && !hasShoulders) return null;
+
+            let xs = usable.map(p => p.x * canvasW);
+            let ys = usable.map(p => p.y * canvasH);
+
+            if (hasShoulders) {
+                const shoulderWidth = Math.max(24, Math.abs(rSh.x - lSh.x) * canvasW);
+                const midX = ((lSh.x + rSh.x) / 2) * canvasW;
+                const midY = ((lSh.y + rSh.y) / 2) * canvasH;
+                xs.push(midX - shoulderWidth * 0.65, midX + shoulderWidth * 0.65);
+                ys.push(midY - shoulderWidth * 1.25, midY + shoulderWidth * 0.35);
+            }
+
+            const minX = Math.max(0, Math.min(...xs));
+            const maxX = Math.min(canvasW, Math.max(...xs));
+            const minY = Math.max(0, Math.min(...ys));
+            const maxY = Math.min(canvasH, Math.max(...ys));
+            const pad = Math.max(8, (maxX - minX) * 0.18);
+
+            return {
+                originX: Math.max(0, minX - pad),
+                originY: Math.max(0, minY - pad),
+                width: Math.min(canvasW - Math.max(0, minX - pad), (maxX - minX) + pad * 2),
+                height: Math.min(canvasH - Math.max(0, minY - pad), (maxY - minY) + pad * 2)
+            };
         }
 
         // ========== 学习状态判断 ==========
@@ -850,21 +993,21 @@
         }
 
         function deriveCandidateState(track) {
-            // 优先用 Pose 数据（肩部参考线更可靠）
-            if (track.poseState) {
-                if (track.poseState.state === 'up') return '抬头';
-                if (track.poseState.state === 'down') return '看桌面';
-                if (track.poseState.state === 'sleep') return '疑似睡觉';
-            }
-            // 回退：Face Landmarker
+            // 清晰人脸优先使用 Face Landmarker 的角度/几何判断。
             if (track.headPose) {
                 if (track.headPose.state === 'up' || track.headPose.state === 'normal') return '抬头';
                 if (track.headPose.state === 'down') return '看桌面';
                 if (track.headPose.state === 'side') return '无法判断';
             }
-            // 可靠人脸 → 抬头
+
+            // 无清晰脸时，使用 PoseLandmarker 的头肩关系判断。
+            if (track.poseState) {
+                return poseToStudyState(track.poseState);
+            }
+
+            // 可靠人脸但角度暂时不可用 → 保守视为抬头。
             if (track._class === 'reliable') return '抬头';
-            // 远距离 → 无法判断
+
             return '无法判断';
         }
 
@@ -987,11 +1130,14 @@
             const score = track.score;
             const tier = track._class || 'distant';
             const isReliable = tier === 'reliable';
+            const isPoseOnly = tier === 'pose';
 
             if (!showDetectionBox) return;
 
-            // 颜色：可靠=红，远距离=黄
-            const innerColor = isReliable ? 'rgba(255, 38, 64, 0.95)' : 'rgba(255, 214, 10, 0.95)';
+            // 颜色：可靠人脸=红，远距离人脸=黄，仅人体姿态=蓝
+            const innerColor = isReliable
+                ? 'rgba(255, 38, 64, 0.95)'
+                : (isPoseOnly ? 'rgba(116, 185, 255, 0.95)' : 'rgba(255, 214, 10, 0.95)');
             const outerColor = 'rgba(0, 0, 0, 0.65)';
 
             // 仅四角线（方案B），无完整矩形
@@ -1048,8 +1194,13 @@
 
             // 置信度标签
             let label;
-            if (isReliable && track.headPose) {
-                label = `${track.headPose.label} ${(score * 100).toFixed(0)}%`;
+            if (isPoseOnly) {
+                label = `人体 ${(score * 100).toFixed(0)}%`;
+            } else if (isReliable && track.headPose) {
+                const poseText = track.headPose.pitch !== undefined
+                    ? `${track.headPose.label} p${track.headPose.pitch}°`
+                    : track.headPose.label;
+                label = `${poseText} ${(score * 100).toFixed(0)}%`;
             } else if (isReliable) {
                 label = `${(score * 100).toFixed(0)}%`;
             } else {
@@ -1063,7 +1214,7 @@
             const labelY = y - 6;
 
             const bgColor = 'rgba(0, 0, 0, 0.65)';
-            const textColor = isReliable ? '#ffffff' : '#ffd60a';
+            const textColor = isPoseOnly ? '#74b9ff' : (isReliable ? '#ffffff' : '#ffd60a');
             const textX = x + pad;
 
             if (labelY - textHeight > 0) {
@@ -1103,6 +1254,76 @@
                     }
                 });
             }
+        }
+
+        function buildStatusPayload(faces, videoW, videoH) {
+            const people = faces.map((face, index) => ({
+                id: String(face.id ?? index),
+                source: face.source || (face._class === 'pose' ? 'pose-only' : 'face'),
+                state: face.studyState || '无法判断',
+                confidence: Number((face.score ?? 0).toFixed(3)),
+                detectionClass: face._class || 'unknown',
+                box: {
+                    x: Math.round(face.box.originX),
+                    y: Math.round(face.box.originY),
+                    width: Math.round(face.box.width),
+                    height: Math.round(face.box.height)
+                },
+                normalizedBox: {
+                    x: Number((face.box.originX / videoW).toFixed(4)),
+                    y: Number((face.box.originY / videoH).toFixed(4)),
+                    width: Number((face.box.width / videoW).toFixed(4)),
+                    height: Number((face.box.height / videoH).toFixed(4))
+                },
+                pose: face.poseState ? {
+                    source: face.poseState.source,
+                    state: face.poseState.state,
+                    label: face.poseState.label,
+                    detail: face.poseState.detail,
+                    confidence: face.poseState.confidence
+                } : null,
+                headPose: face.headPose ? {
+                    source: face.headPose.source,
+                    state: face.headPose.state,
+                    label: face.headPose.label,
+                    pitch: face.headPose.pitch,
+                    yaw: face.headPose.yaw,
+                    roll: face.headPose.roll,
+                    pitchRatio: face.headPose.pitchRatio,
+                    yawRatio: face.headPose.yawRatio,
+                    confidence: face.headPose.confidence
+                } : null
+            }));
+
+            return {
+                timestamp: new Date().toISOString(),
+                mode: detectionMode,
+                video: { width: videoW, height: videoH },
+                summary: {
+                    total: people.length,
+                    up: people.filter(p => p.state === '抬头').length,
+                    desk: people.filter(p => p.state === '看桌面').length,
+                    sleep: people.filter(p => p.state === '疑似睡觉').length,
+                    unknown: people.filter(p => p.state === '无法判断').length
+                },
+                people
+            };
+        }
+
+        function maybeSendStatusPayload(payload, now) {
+            latestStatusPayload = payload;
+            window.latestClassroomStatusPayload = payload;
+            window.getClassroomStatusPayload = () => latestStatusPayload;
+
+            if (!BACKEND_STATUS_ENDPOINT) return;
+            if (now - lastBackendPostAt < BACKEND_POST_INTERVAL_MS) return;
+            lastBackendPostAt = now;
+
+            fetch(BACKEND_STATUS_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }).catch(err => console.warn('状态数据发送失败:', err.message || err));
         }
 
         // ---- 主检测循环 ----
@@ -1192,14 +1413,12 @@
                 displayFaces = matchDetections(detections);
             }
 
-            const reliableFaces = displayFaces.filter(f => f._class === 'reliable');
-            const distantFaces = displayFaces.filter(f => f._class === 'distant');
-
-            // === Pose Landmarker：全帧一次 → 匹配到各人脸 ===
+            // === Pose Landmarker：全帧一次 → 匹配到各人脸/人体 ===
             const fc = document.createElement('canvas');
             videoToCanvas(fc);
             const poses = await detectPoses(fc);
             const canvasW = fc.width, canvasH = fc.height;
+            const usedPoseIndexes = new Set();
 
             // 诊断：每秒打印 Pose 数量 + 关键点可见性
             if (now - debugLastLog >= 1000) {
@@ -1217,6 +1436,8 @@
                     console.log(`  🔗 匹配: ${matchedPose ? '✅' : '❌'} faceBox=(${Math.round(face.box.originX)},${Math.round(face.box.originY)} ${Math.round(face.box.width)}×${Math.round(face.box.height)}) poses=${poses.length}`);
                 }
                 if (matchedPose) {
+                    const poseIndex = poses.indexOf(matchedPose);
+                    if (poseIndex >= 0) usedPoseIndexes.add(poseIndex);
                     face.poseLandmarks = matchedPose;
                     face.poseState = derivePoseState(matchedPose, canvasW, canvasH);
                 } else {
@@ -1230,15 +1451,59 @@
                 } else {
                     face.headPose = null;
                 }
+
+                const candidate = deriveCandidateState(face);
+                updateTrackStudyState(face, candidate);
             }
+
+            // Pose-only 人物：能看到身体/肩部，但没检测到清晰脸。
+            poses.forEach((pose, poseIndex) => {
+                if (usedPoseIndexes.has(poseIndex)) return;
+                const poseBox = buildPoseBox(pose, canvasW, canvasH);
+                if (!poseBox || poseBox.width < 28 || poseBox.height < 28) return;
+
+                const overlapsFace = displayFaces.some(face => iou(face.box, poseBox) > 0.18);
+                if (overlapsFace) return;
+
+                const poseState = derivePoseState(pose, canvasW, canvasH) || {
+                    source: 'pose',
+                    state: 'unknown',
+                    label: '无法判断',
+                    detail: '仅检测到人体',
+                    confidence: 0.3
+                };
+                const score = Math.max(0.25, Math.min(0.85, poseAverageVisibility(pose)));
+                const poseOnlyTrack = {
+                    id: `pose-${poseIndex}`,
+                    box: poseBox,
+                    score,
+                    keypoints: null,
+                    _class: 'pose',
+                    confirmed: 0,
+                    lost: 0,
+                    poseLandmarks: pose,
+                    poseState,
+                    headPose: null,
+                    studyState: poseToStudyState(poseState),
+                    studyStateCandidate: poseToStudyState(poseState),
+                    studyStateSince: Date.now(),
+                    source: 'pose-only'
+                };
+                displayFaces.push(poseOnlyTrack);
+            });
+
+            const reliableFaces = displayFaces.filter(f => f._class === 'reliable');
+            const distantFaces = displayFaces.filter(f => f._class === 'distant');
+            const poseOnlyFaces = displayFaces.filter(f => f._class === 'pose');
 
             // 每秒调试
             if (now - debugLastLog >= 1000) {
-                console.log(`🔍 [${detectionMode}${debugRawDetection ? ' DEBUG' : ''}] full_range | raw:${detections.length} valid:${rawValidCount || displayFaces.length} (可靠:${reliableFaces.length} 远距:${distantFaces.length})`);
+                console.log(`🔍 [${detectionMode}${debugRawDetection ? ' DEBUG' : ''}] full_range | raw:${detections.length} valid:${rawValidCount || displayFaces.length} (可靠:${reliableFaces.length} 远距:${distantFaces.length} 人体:${poseOnlyFaces.length})`);
                 displayFaces.forEach((t, i) => {
                     const ri = t._rawBox ? ` raw:${t._rawBox}` : ` 平滑:${Math.round(t.box.width)}×${Math.round(t.box.height)}`;
                     const hp = t.headPose ? ` [${t.headPose.label}]` : '';
-                    console.log(`  人脸 ${i + 1}: ${t._class}${hp} ${(t.score * 100).toFixed(0)}%${ri} 确认${t.confirmed || 0}帧`);
+                    const ps = t.poseState ? ` pose=${t.poseState.label}/${t.poseState.detail}` : '';
+                    console.log(`  人物 ${i + 1}: ${t._class}${hp}${ps} ${(t.score * 100).toFixed(0)}%${ri} 状态=${t.studyState} 确认${t.confirmed || 0}帧`);
                 });
                 if (!debugRawDetection && detections.length > 0 && displayFaces.length > 0) {
                     const rb = detections[0].boundingBox;
@@ -1269,6 +1534,7 @@
             if (parts.length > 0) faceSummary += ` (${parts.join(' ')})`;
             faceCountEl.textContent = faceSummary;
             updateClassroomStatus(displayFaces.length);
+            maybeSendStatusPayload(buildStatusPayload(displayFaces, displayWidth, displayHeight), now);
 
             frameCount++;
             if (now - lastTime >= 1000) {
