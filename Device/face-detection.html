@@ -365,12 +365,29 @@
         let durationTimerStarted = false;
 
         // 检测模式：'normal' | 'classroom'
+        // ---- 检测模式 ----
         let detectionMode = 'normal';
-        const GRID_COLS = 3;          // 大教室模式：3列
-        const GRID_ROWS = 2;          // 大教室模式：2行（共6块）
-        const DETECT_INTERVAL_MS = 250; // 大教室模式节流：250ms 检测一次
+        const GRID_COLS = 3;
+        const GRID_ROWS = 2;
+        const DETECT_INTERVAL_MS = 250;
         let lastDetectTime = 0;
-        let lastDetections = [];       // 缓存最近一次检测结果
+        let lastDetections = [];
+
+        // 尺寸阈值（按模式）
+        function getFaceThresholds() {
+            if (detectionMode === 'classroom') {
+                return { minW: 45, minH: 45, reliableW: 80, reliableH: 80, minConf: 0.35 };
+            }
+            return { minW: 70, minH: 70, reliableW: 80, reliableH: 80, minConf: 0.50 };
+        }
+
+        // 跟踪状态：EMA 平滑 + 帧计数
+        // trackedFaces: Map<id, { box, score, confirmed, lost, keypoints }>
+        let trackedFaces = [];
+        const CONFIRM_FRAMES = 3;   // 连续 3 帧才显示
+        const LOST_FRAMES = 5;      // 连续 5 帧丢失才移除
+        const EMA_ALPHA = 0.3;      // 平滑系数 (new=0.3, old=0.7)
+        let nextFaceId = 0;
 
         // 调试
         let debugLastLog = 0;
@@ -530,7 +547,7 @@
             const baseOptions = (d) => ({
                 baseOptions: { modelAssetPath: MODEL_URL, delegate: d },
                 runningMode: 'IMAGE',
-                minDetectionConfidence: 0.2
+                minDetectionConfidence: 0.3
             });
 
             try {
@@ -542,7 +559,7 @@
             }
 
             debugEngine.textContent = `引擎: MediaPipe IMAGE (${delegate})`;
-            console.log(`✅ 模型加载成功 (${delegate}, IMAGE 模式, 置信度 0.2)`);
+            console.log(`✅ 模型加载成功 (${delegate}, IMAGE 模式, 检测器置信度 0.3)`);
         }
 
         // ========== 人脸检测 + 绘制 ==========
@@ -666,8 +683,197 @@
             return merged;
         }
 
-        // ---- 绘制单个检测框（复用） ----
-        function drawOneDetection(det, displayWidth) {
+        // ========== 人脸跟踪 + 平滑 + 三层过滤 ==========
+        function iou(boxA, boxB) {
+            const ax1 = boxA.originX, ay1 = boxA.originY;
+            const ax2 = ax1 + boxA.width, ay2 = ay1 + boxA.height;
+            const bx1 = boxB.originX, by1 = boxB.originY;
+            const bx2 = bx1 + boxB.width, by2 = by1 + boxB.height;
+            const interX = Math.max(0, Math.min(ax2, bx2) - Math.max(ax1, bx1));
+            const interY = Math.max(0, Math.min(ay2, by2) - Math.max(ay1, by1));
+            const inter = interX * interY;
+            const union = boxA.width * boxA.height + boxB.width * boxB.height - inter;
+            return union > 0 ? inter / union : 0;
+        }
+
+        function smoothBox(oldBox, newBox) {
+            if (!oldBox) return { originX: newBox.originX, originY: newBox.originY, width: newBox.width, height: newBox.height };
+            return {
+                originX: oldBox.originX * (1 - EMA_ALPHA) + newBox.originX * EMA_ALPHA,
+                originY: oldBox.originY * (1 - EMA_ALPHA) + newBox.originY * EMA_ALPHA,
+                width:   oldBox.width   * (1 - EMA_ALPHA) + newBox.width   * EMA_ALPHA,
+                height:  oldBox.height  * (1 - EMA_ALPHA) + newBox.height  * EMA_ALPHA,
+            };
+        }
+
+        function classifyDetection(box, score) {
+            const t = getFaceThresholds();
+            if (box.width < t.minW || box.height < t.minH) return 'ignore';
+            if (score < t.minConf) return 'ignore';
+            if (box.width >= t.reliableW && box.height >= t.reliableH && score >= 0.5) return 'reliable';
+            return 'distant';
+        }
+
+        function matchDetections(rawDetections) {
+            const now = performance.now();
+
+            // 1) 过滤
+            const valid = [];
+            for (const det of rawDetections) {
+                const box = det.boundingBox;
+                const score = det.categories?.[0]?.score ?? 0;
+                const cls = classifyDetection(box, score);
+                if (cls === 'ignore') continue;
+                valid.push({ box: det.boundingBox, score, keypoints: det.keypoints || null, _class: cls });
+            }
+
+            // 2) 匹配已有 track
+            const matched = new Set();
+            const updated = [];
+
+            for (const track of trackedFaces) {
+                let bestIoU = 0.3;
+                let bestIdx = -1;
+                for (let i = 0; i < valid.length; i++) {
+                    if (matched.has(i)) continue;
+                    const iouVal = iou(track.box, valid[i].box);
+                    if (iouVal > bestIoU) { bestIoU = iouVal; bestIdx = i; }
+                }
+                if (bestIdx >= 0) {
+                    matched.add(bestIdx);
+                    const v = valid[bestIdx];
+                    track.box = smoothBox(track.box, v.box);
+                    track.score = v.score;
+                    track.keypoints = v.keypoints;
+                    track._class = v._class;
+                    track.confirmed = Math.min(track.confirmed + 1, CONFIRM_FRAMES);
+                    track.lost = 0;
+                    updated.push(track);
+                } else {
+                    track.lost++;
+                    if (track.lost <= LOST_FRAMES) updated.push(track);
+                }
+            }
+
+            // 3) 新建 track
+            for (let i = 0; i < valid.length; i++) {
+                if (matched.has(i)) continue;
+                const v = valid[i];
+                updated.push({
+                    id: nextFaceId++,
+                    box: { originX: v.box.originX, originY: v.box.originY, width: v.box.width, height: v.box.height },
+                    score: v.score,
+                    keypoints: v.keypoints,
+                    _class: v._class,
+                    confirmed: 1,
+                    lost: 0,
+                });
+            }
+
+            trackedFaces = updated;
+            return trackedFaces.filter(t => t.confirmed >= CONFIRM_FRAMES);
+        }
+
+        // ---- 绘制单个检测框（三-tier） ----
+        function drawOneDetection(track, displayWidth) {
+            const box = track.box;
+            const x = box.originX;
+            const y = box.originY;
+            const w = box.width;
+            const h = box.height;
+            const score = track.score;
+            const tier = track._class || 'distant';
+            const isReliable = tier === 'reliable';
+            const isDistant = tier === 'distant';
+
+            // 边框颜色：可靠=红，远距离=黄
+            const borderColor = isReliable ? '#ff1744' : '#fdcb6e';
+            const glowColor = isReliable ? '#ff1744' : '#fdcb6e';
+            const fontSize = Math.max(11, displayWidth / 70);
+
+            ctx.strokeStyle = borderColor;
+            ctx.lineWidth = Math.max(2, displayWidth / 250);
+            ctx.shadowColor = glowColor;
+            ctx.shadowBlur = isReliable ? 12 : 6;
+            ctx.strokeRect(x, y, w, h);
+            ctx.shadowBlur = 0;
+
+            // 四角标记
+            const cornerLen = Math.min(w, h) * 0.2;
+            ctx.strokeStyle = isReliable ? '#ff5252' : '#ffe082';
+            ctx.lineWidth = Math.max(3, displayWidth / 150);
+            [
+                [x, y, 1, 1], [x + w, y, -1, 1],
+                [x, y + h, 1, -1], [x + w, y + h, -1, -1]
+            ].forEach(([cx, cy, dx, dy]) => {
+                ctx.beginPath();
+                ctx.moveTo(cx, cy + dy * cornerLen);
+                ctx.lineTo(cx, cy);
+                ctx.lineTo(cx + dx * cornerLen, cy);
+                ctx.stroke();
+            });
+
+            // 标签
+            let label;
+            if (isReliable) {
+                label = `Face ${(score * 100).toFixed(0)}%`;
+            } else {
+                label = `远距 ${(score * 100).toFixed(0)}% · 五官不可靠`;
+            }
+
+            ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+            const textWidth = ctx.measureText(label).width;
+            const textHeight = fontSize + 4;
+            const padding = 4;
+            const labelY = y - 8;
+
+            const bgColor = isReliable ? 'rgba(255, 23, 68, 0.85)' : 'rgba(180, 120, 20, 0.85)';
+            const textX = x + padding;
+
+            if (labelY - textHeight > 0) {
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(x, labelY - textHeight, textWidth + padding * 2, textHeight + padding);
+                ctx.fillStyle = '#fff';
+                ctx.fillText(label, textX, labelY - 4);
+            } else {
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(x, y + 2, textWidth + padding * 2, textHeight + padding);
+                ctx.fillStyle = '#fff';
+                ctx.fillText(label, textX, y + textHeight);
+            }
+
+            // 关键点：仅可靠人脸显示
+            if (isReliable && track.keypoints && track.keypoints.length > 0) {
+                track.keypoints.forEach((kp, idx) => {
+                    let kpX = kp.x, kpY = kp.y;
+                    if (kpX <= 1 && kpY <= 1 && (kpX > 0 || kpY > 0)) {
+                        kpX *= canvas.width;
+                        kpY *= canvas.height;
+                    }
+                    if (kpX === 0 && kpY === 0) return;
+
+                    const pointSize = Math.max(2, displayWidth / 400);
+                    ctx.beginPath();
+                    ctx.arc(kpX, kpY, pointSize + 2, 0, 2 * Math.PI);
+                    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(kpX, kpY, pointSize, 0, 2 * Math.PI);
+                    ctx.fillStyle = KEYPOINT_COLORS[idx] || '#fff';
+                    ctx.fill();
+
+                    const kpLabel = KEYPOINT_NAMES[idx];
+                    if (kpLabel) {
+                        ctx.fillStyle = '#fff';
+                        ctx.font = `${Math.max(8, displayWidth / 100)}px -apple-system, BlinkMacSystemFont, sans-serif`;
+                        ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                        ctx.shadowBlur = 3;
+                        ctx.fillText(kpLabel, kpX + pointSize + 4, kpY + pointSize / 2);
+                        ctx.shadowBlur = 0;
+                    }
+                });
+            }
+        }
             const box = det.boundingBox;
             const x = box.originX;
             const y = box.originY;
@@ -806,30 +1012,34 @@
                 }
             }
 
+            // === 跟踪管道：过滤 + 平滑 + 去抖 ===
+            const confirmedFaces = matchDetections(detections);
+
+            const reliableFaces = confirmedFaces.filter(f => f._class === 'reliable');
+            const distantFaces = confirmedFaces.filter(f => f._class === 'distant');
+
             // 调试日志
             if (now - debugLastLog >= 1000) {
-                console.log(`🔍 [${detectionMode}] 检测到人脸数量: ${detections.length}`);
-                detections.forEach((det, i) => {
-                    const score = det.categories?.[0]?.score ?? 0;
-                    const gridInfo = det._gridRow !== undefined ? ` (块${det._gridRow},${det._gridCol})` : '';
-                    console.log(`  人脸 ${i + 1}: 置信度 ${(score * 100).toFixed(1)}%${gridInfo}, 位置 (${Math.round(det.boundingBox.originX)}, ${Math.round(det.boundingBox.originY)}), 大小 ${Math.round(det.boundingBox.width)}×${Math.round(det.boundingBox.height)}`);
+                console.log(`🔍 [${detectionMode}] 原始: ${detections.length} | 跟踪确认: ${confirmedFaces.length} (可靠: ${reliableFaces.length}, 远距: ${distantFaces.length})`);
+                confirmedFaces.forEach((t, i) => {
+                    console.log(`  人脸 ${i + 1}: ${t._class} 置信度 ${(t.score * 100).toFixed(1)}% 框 ${Math.round(t.box.width)}×${Math.round(t.box.height)} 确认${t.confirmed}帧`);
                 });
                 debugLastLog = now;
             }
 
-            if (detections.length > 0 && detections[0].categories?.[0]) {
-                lastConfidence = detections[0].categories[0].score;
-            } else if (detections.length === 0) {
+            if (confirmedFaces.length > 0) {
+                lastConfidence = confirmedFaces[0].score;
+            } else {
                 lastConfidence = null;
             }
             debugLastScore.textContent = `最后置信度: ${lastConfidence ? (lastConfidence * 100).toFixed(0) + '%' : '--'}`;
 
-            // 绘制
-            detections.forEach(det => drawOneDetection(det, displayWidth));
+            // 绘制（仅已确认的跟踪人脸）
+            confirmedFaces.forEach(t => drawOneDetection(t, displayWidth));
 
-            // 更新 UI
-            faceCountEl.textContent = `检测到: ${detections.length} 人`;
-            updateClassroomStatus(detections.length);
+            // 更新 UI：只统计已确认的人脸
+            faceCountEl.textContent = `检测到: ${confirmedFaces.length} 人 (可靠${reliableFaces.length})`;
+            updateClassroomStatus(confirmedFaces.length);
 
             frameCount++;
             if (now - lastTime >= 1000) {
@@ -850,13 +1060,15 @@
                 modeToggleBtn.classList.add('classroom');
                 lastDetections = [];
                 lastDetectTime = 0;
-                console.log('🔀 切换为大教室模式（3×2 分块检测，250ms 节流，置信度 0.2）');
+                trackedFaces = [];
+                console.log('🔀 切换为大教室模式（3×2分块 | 最小45px | 置信度≥0.35 | 远距离仅统计人数）');
             } else {
                 detectionMode = 'normal';
                 modeToggleBtn.textContent = '🏫 普通模式';
                 modeToggleBtn.classList.remove('classroom');
                 lastDetections = [];
-                console.log('🔀 切换为普通模式（整帧检测）');
+                trackedFaces = [];
+                console.log('🔀 切换为普通模式（整帧 | 最小70px | 置信度≥0.5 | 近距离显示五官）');
             }
         });
 
