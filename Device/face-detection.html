@@ -106,24 +106,18 @@
         .container {
             position: relative;
             width: min(96vw, 1100px);
-            aspect-ratio: 16 / 9;
             border-radius: 16px;
             overflow: hidden;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
             background: #000;
         }
 
-        #video,
-        #canvas {
-            width: 100%;
-            height: 100%;
-        }
-
         #video {
             position: relative;
             z-index: 1;
             display: block;
-            object-fit: cover;
+            width: 100%;
+            height: auto;
         }
 
         #video.mirrored {
@@ -134,6 +128,8 @@
             position: absolute;
             top: 0;
             left: 0;
+            width: 100%;
+            height: 100%;
             z-index: 2;
             pointer-events: none;
         }
@@ -350,7 +346,7 @@
 
         // ========== MediaPipe 配置 ==========
         const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
-        const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite";
+        const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_full_range/float16/latest/blaze_face_full_range.tflite";
         const LANDMARKER_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
 
         // ========== 全局状态 ==========
@@ -379,13 +375,15 @@
         const DETECT_INTERVAL_MS = 250;
         let lastDetectTime = 0;
         let lastDetections = [];
+        let lastDetectionsTimestamp = 0;
+        const CACHE_MAX_AGE_MS = 300; // 缓存最大 300ms
 
         // 尺寸阈值（按模式）
         function getFaceThresholds() {
             if (detectionMode === 'classroom') {
-                return { minW: 45, minH: 45, reliableW: 80, reliableH: 80, minConf: 0.35 };
+                return { minW: 30, minH: 30, reliableW: 90, reliableH: 90, minConf: 0.30 };
             }
-            return { minW: 70, minH: 70, reliableW: 80, reliableH: 80, minConf: 0.50 };
+            return { minW: 45, minH: 45, reliableW: 90, reliableH: 90, minConf: 0.45 };
         }
 
         // 跟踪状态：EMA 平滑 + 帧计数
@@ -393,7 +391,9 @@
         let trackedFaces = [];
         const CONFIRM_FRAMES = 3;   // 连续 3 帧才显示
         const LOST_FRAMES = 5;      // 连续 5 帧丢失才移除
-        const EMA_ALPHA = 0.3;      // 平滑系数 (new=0.3, old=0.7)
+        const EMA_ALPHA = 0.3;      // x/y 平滑系数
+        const EMA_SIZE_ALPHA = 0.7;  // w/h 平滑系数（更高=更快跟随变化）
+        let debugRawDetection = true; // true=跳过跟踪直接画 raw box（调试用）
         let nextFaceId = 0;
         let showDetectionBox = true; // 显示检测框开关
 
@@ -653,8 +653,13 @@
                             det.boundingBox.originY += srcY;
                             if (det.keypoints) {
                                 for (const kp of det.keypoints) {
-                                    kp.x += srcX;
-                                    kp.y += srcY;
+                                    if (kp.x <= 1 && kp.y <= 1) {
+                                        kp.x = kp.x * srcW + srcX;
+                                        kp.y = kp.y * srcH + srcY;
+                                    } else {
+                                        kp.x += srcX;
+                                        kp.y += srcY;
+                                    }
                                 }
                             }
                             det._gridRow = row;
@@ -796,8 +801,8 @@
             return {
                 originX: oldBox.originX * (1 - EMA_ALPHA) + newBox.originX * EMA_ALPHA,
                 originY: oldBox.originY * (1 - EMA_ALPHA) + newBox.originY * EMA_ALPHA,
-                width:   oldBox.width   * (1 - EMA_ALPHA) + newBox.width   * EMA_ALPHA,
-                height:  oldBox.height  * (1 - EMA_ALPHA) + newBox.height  * EMA_ALPHA,
+                width:   oldBox.width   * (1 - EMA_SIZE_ALPHA) + newBox.width   * EMA_SIZE_ALPHA,
+                height:  oldBox.height  * (1 - EMA_SIZE_ALPHA) + newBox.height  * EMA_SIZE_ALPHA,
             };
         }
 
@@ -936,8 +941,8 @@
                 ctx.fillText(label, textX, y + textHeight - 1);
             }
 
-            // === 关键点：仅可靠人脸 + 显示检测框打开时 ===
-            if (isReliable && track.keypoints && track.keypoints.length > 0) {
+            // 关键点：仅可靠人脸 + w/h ≥ 60px
+            if (isReliable && w >= 60 && h >= 60 && track.keypoints && track.keypoints.length > 0) {
                 track.keypoints.forEach((kp, idx) => {
                     let kpX = kp.x, kpY = kp.y;
                     if (kpX <= 1 && kpY <= 1 && (kpX > 0 || kpY > 0)) {
@@ -984,7 +989,7 @@
                 console.log(`📐 canvas 尺寸更新: ${displayWidth}×${displayHeight}`);
             }
 
-            debugVideoSize.textContent = `视频: ${displayWidth}×${displayHeight} | 模式: ${detectionMode === 'classroom' ? `${GRID_COLS}×${GRID_ROWS}分块` : '普通'}`;
+            debugVideoSize.textContent = `视频: ${displayWidth}×${displayHeight} | ${detectionMode === 'classroom' ? '大教室' : '普通'} | full_range${debugRawDetection ? ' DEBUG' : ''}`;
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -998,12 +1003,20 @@
                     try {
                         detections = await detectGrid();
                         lastDetections = detections;
+                        lastDetectionsTimestamp = now;
                     } catch (e) {
                         console.error('分块检测出错:', e.message || e);
-                        detections = lastDetections;
+                        // 缓存过期则清空
+                        if (now - lastDetectionsTimestamp > CACHE_MAX_AGE_MS) {
+                            detections = [];
+                        } else {
+                            detections = lastDetections;
+                        }
                     }
-                } else {
+                } else if (now - lastDetectionsTimestamp <= CACHE_MAX_AGE_MS) {
                     detections = lastDetections;
+                } else {
+                    detections = []; // 缓存过期，等待新检测
                 }
             } else {
                 // ---- 普通模式：整帧检测 ----
@@ -1017,58 +1030,80 @@
                 }
             }
 
-            // === 跟踪管道：过滤 + 平滑 + 去抖 ===
-            const confirmedFaces = matchDetections(detections);
+            // === 管道：debug 模式跳过跟踪 ===
+            let displayFaces;
+            let rawValidCount = 0;
 
-            // === Face Landmarker：仅可靠人脸 ≥100px ===
-            const fullCanvas = document.createElement('canvas');
-            let fullCanvasReady = false;
-            for (const face of confirmedFaces) {
-                if (face._class === 'reliable' && face.box.width >= 100 && face.box.height >= 100) {
-                    if (!fullCanvasReady) {
-                        videoToCanvas(fullCanvas);
-                        fullCanvasReady = true;
-                    }
-                    face.headPose = await runFaceLandmarker(fullCanvas, face.box);
+            if (debugRawDetection) {
+                const t = getFaceThresholds();
+                const raw = [];
+                for (const det of detections) {
+                    const box = det.boundingBox;
+                    const score = det.categories?.[0]?.score ?? 0;
+                    const cls = classifyDetection(box, score);
+                    if (cls === 'ignore') continue;
+                    rawValidCount++;
+                    raw.push({
+                        box: { originX: box.originX, originY: box.originY, width: box.width, height: box.height },
+                        score, keypoints: det.keypoints || null, _class: cls,
+                        confirmed: 0, headPose: null,
+                        _rawBox: `${Math.round(box.width)}×${Math.round(box.height)}`
+                    });
+                }
+                displayFaces = raw;
+            } else {
+                displayFaces = matchDetections(detections);
+            }
+
+            const reliableFaces = displayFaces.filter(f => f._class === 'reliable');
+            const distantFaces = displayFaces.filter(f => f._class === 'distant');
+
+            // Face Landmarker：可靠人脸 ≥90px
+            const fc = document.createElement('canvas');
+            let fcReady = false;
+            for (const face of displayFaces) {
+                if (face._class === 'reliable' && face.box.width >= 90 && face.box.height >= 90) {
+                    if (!fcReady) { videoToCanvas(fc); fcReady = true; }
+                    face.headPose = await runFaceLandmarker(fc, face.box);
                 } else {
                     face.headPose = null;
                 }
             }
 
-            const reliableFaces = confirmedFaces.filter(f => f._class === 'reliable');
-            const distantFaces = confirmedFaces.filter(f => f._class === 'distant');
-
-            // 调试日志
+            // 每秒调试
             if (now - debugLastLog >= 1000) {
-                console.log(`🔍 [${detectionMode}] 原始: ${detections.length} | 跟踪确认: ${confirmedFaces.length} (可靠: ${reliableFaces.length}, 远距: ${distantFaces.length})`);
-                confirmedFaces.forEach((t, i) => {
-                    const hp = t.headPose ? ` [${t.headPose.label} p${t.headPose.pitchRatio}]` : '';
-                    console.log(`  人脸 ${i + 1}: ${t._class}${hp} 置信度 ${(t.score * 100).toFixed(1)}% 框 ${Math.round(t.box.width)}×${Math.round(t.box.height)} 确认${t.confirmed}帧`);
+                console.log(`🔍 [${detectionMode}${debugRawDetection ? ' DEBUG' : ''}] full_range | raw:${detections.length} valid:${rawValidCount || displayFaces.length} (可靠:${reliableFaces.length} 远距:${distantFaces.length})`);
+                displayFaces.forEach((t, i) => {
+                    const ri = t._rawBox ? ` raw:${t._rawBox}` : ` 平滑:${Math.round(t.box.width)}×${Math.round(t.box.height)}`;
+                    const hp = t.headPose ? ` [${t.headPose.label}]` : '';
+                    console.log(`  人脸 ${i + 1}: ${t._class}${hp} ${(t.score * 100).toFixed(0)}%${ri} 确认${t.confirmed || 0}帧`);
                 });
+                if (!debugRawDetection && detections.length > 0 && displayFaces.length > 0) {
+                    const rb = detections[0].boundingBox;
+                    const sb = displayFaces[0].box;
+                    console.log(`  📐 raw=(${Math.round(rb.originX)},${Math.round(rb.originY)} ${Math.round(rb.width)}×${Math.round(rb.height)}) smoothed=(${Math.round(sb.originX)},${Math.round(sb.originY)} ${Math.round(sb.width)}×${Math.round(sb.height)})`);
+                }
                 debugLastLog = now;
             }
 
-            if (confirmedFaces.length > 0) {
-                lastConfidence = confirmedFaces[0].score;
-            } else {
-                lastConfidence = null;
-            }
+            if (displayFaces.length > 0) lastConfidence = displayFaces[0].score;
+            else lastConfidence = null;
             debugLastScore.textContent = `最后置信度: ${lastConfidence ? (lastConfidence * 100).toFixed(0) + '%' : '--'}`;
 
-            // 绘制（仅已确认的跟踪人脸）
-            confirmedFaces.forEach(t => drawOneDetection(t, displayWidth));
+            // 绘制
+            displayFaces.forEach(t => drawOneDetection(t, displayWidth));
 
-            // 更新 UI：人数 + 头部姿态概要
-            const withPose = confirmedFaces.filter(f => f.headPose && f.headPose.state !== 'normal');
+            // UI
+            const withPose = displayFaces.filter(f => f.headPose && f.headPose.state !== 'normal');
             const downCount = withPose.filter(f => f.headPose.state === 'down').length;
             const upCount = withPose.filter(f => f.headPose.state === 'up').length;
-            let faceSummary = `检测到: ${confirmedFaces.length} 人`;
+            let faceSummary = `检测到: ${displayFaces.length} 人`;
             if (reliableFaces.length > 0) faceSummary += ` (清晰${reliableFaces.length}`;
             if (downCount > 0) faceSummary += ` 低头${downCount}`;
             if (upCount > 0) faceSummary += ` 抬头${upCount}`;
             if (reliableFaces.length > 0) faceSummary += ')';
             faceCountEl.textContent = faceSummary;
-            updateClassroomStatus(confirmedFaces.length);
+            updateClassroomStatus(displayFaces.length);
 
             frameCount++;
             if (now - lastTime >= 1000) {
@@ -1090,14 +1125,14 @@
                 lastDetections = [];
                 lastDetectTime = 0;
                 trackedFaces = [];
-                console.log('🔀 切换为大教室模式（3×2分块 | 最小45px | 置信度≥0.35 | 远距离仅统计人数）');
+                console.log('🔀 大教室模式（3×2分块 | ≥30px | 置信度≥0.30 | full_range）');
             } else {
                 detectionMode = 'normal';
                 modeToggleBtn.textContent = '🏫 普通模式';
                 modeToggleBtn.classList.remove('classroom');
                 lastDetections = [];
                 trackedFaces = [];
-                console.log('🔀 切换为普通模式（整帧 | 最小70px | 置信度≥0.5 | 近距离显示五官）');
+                console.log('🔀 普通模式（整帧 | ≥45px | 置信度≥0.45 | full_range）');
             }
         });
 
