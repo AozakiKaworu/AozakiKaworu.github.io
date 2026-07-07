@@ -785,24 +785,28 @@
 
         // ========== 学习状态判断 ==========
         function updateTrackStudyState(track, candidateState) {
-            const now = Date.now();
-            const stableMs = {
-                '抬头': 1000,
-                '看桌面': 1500,
-                '疑似睡觉': 5000,
-                '无法判断': 1000
-            };
+            // DEBUG：直接赋值，不做去抖
+            track.studyState = candidateState || '无法判断';
+            track.studyStateCandidate = candidateState;
+            track.studyStateSince = Date.now();
 
-            if (!track.studyStateCandidate || track.studyStateCandidate !== candidateState) {
-                track.studyStateCandidate = candidateState;
-                track.studyStateSince = now;
-                track.studyState = track.studyState || '无法判断'; // 保持旧状态直到确认
-                return;
-            }
-
-            if (now - track.studyStateSince >= (stableMs[candidateState] || 1000)) {
-                track.studyState = candidateState;
-            }
+            // === 去抖逻辑（暂时禁用，调试完恢复） ===
+            // const now = Date.now();
+            // const stableMs = {
+            //     '抬头': 1000,
+            //     '看桌面': 1500,
+            //     '疑似睡觉': 5000,
+            //     '无法判断': 1000
+            // };
+            // if (!track.studyStateCandidate || track.studyStateCandidate !== candidateState) {
+            //     track.studyStateCandidate = candidateState;
+            //     track.studyStateSince = now;
+            //     track.studyState = track.studyState || '无法判断';
+            //     return;
+            // }
+            // if (now - track.studyStateSince >= (stableMs[candidateState] || 1000)) {
+            //     track.studyState = candidateState;
+            // }
         }
 
         function deriveCandidateState(track) {
@@ -883,9 +887,20 @@
                     track._class = v._class;
                     track.confirmed = Math.min(track.confirmed + 1, CONFIRM_FRAMES);
                     track.lost = 0;
-                    // 学习状态：每帧推导候选 + 去抖
+                    // 学习状态：每帧推导候选（DEBUG：直接赋值）
                     const candidate = deriveCandidateState(track);
                     updateTrackStudyState(track, candidate);
+                    // 调试日志
+                    if (performance.now() - debugLastLog >= 1000) {
+                        console.log(`  🧑 人脸${track.id}:`, {
+                            box: `${Math.round(track.box.width)}×${Math.round(track.box.height)}`,
+                            class: track._class,
+                            headPose: track.headPose ? track.headPose.label : 'null',
+                            headPoseRaw: track.headPose ? `p${track.headPose.pitchRatio} y${track.headPose.yawRatio}` : 'null',
+                            candidateState: candidate,
+                            finalState: track.studyState
+                        });
+                    }
                     updated.push(track);
                 } else {
                     track.lost++;
