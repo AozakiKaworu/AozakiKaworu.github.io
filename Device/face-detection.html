@@ -885,32 +885,42 @@
             const tier = track._class || 'distant';
             const isReliable = tier === 'reliable';
 
-            if (!showDetectionBox) return; // checkbox 关闭时只统计不画
+            if (!showDetectionBox) return;
 
-            // 边框颜色：可靠=红，远距离=黄
-            const lineColor = isReliable ? 'rgba(255, 82, 82, 0.75)' : 'rgba(253, 203, 110, 0.65)';
-            const lineWidth = Math.max(1, Math.min(2, displayWidth / 700));
+            // 颜色：可靠=红，远距离=黄
+            const innerColor = isReliable ? 'rgba(255, 38, 64, 0.95)' : 'rgba(255, 214, 10, 0.95)';
+            const outerColor = 'rgba(0, 0, 0, 0.65)';
 
-            // === 方案B：仅四角线，不画完整矩形 ===
-            const cornerLen = Math.min(w, h) * 0.18;
-            ctx.strokeStyle = lineColor;
-            ctx.lineWidth = lineWidth;
-            ctx.shadowColor = lineColor;
-            ctx.shadowBlur = 2;
+            // 仅四角线（方案B），无完整矩形
+            const cornerLen = Math.max(14, Math.min(w, h) * 0.22);
+            ctx.lineCap = 'round';
+
+            function drawCornerSegment(cx, cy, dx, dy) {
+                const x1 = cx, y1 = cy + dy * cornerLen;
+                const x2 = cx, y2 = cy;
+                const x3 = cx + dx * cornerLen, y3 = cy;
+
+                // 外层暗色描边
+                ctx.strokeStyle = outerColor;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3);
+                ctx.stroke();
+
+                // 内层亮线
+                ctx.strokeStyle = innerColor;
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3);
+                ctx.stroke();
+            }
 
             [
                 [x, y, 1, 1], [x + w, y, -1, 1],
                 [x, y + h, 1, -1], [x + w, y + h, -1, -1]
-            ].forEach(([cx, cy, dx, dy]) => {
-                ctx.beginPath();
-                ctx.moveTo(cx, cy + dy * cornerLen);
-                ctx.lineTo(cx, cy);
-                ctx.lineTo(cx + dx * cornerLen, cy);
-                ctx.stroke();
-            });
-            ctx.shadowBlur = 0;
+            ].forEach(([cx, cy, dx, dy]) => drawCornerSegment(cx, cy, dx, dy));
 
-            // === 标签 ===
+            // 标签
             let label;
             if (isReliable && track.headPose) {
                 label = `${track.headPose.label} ${(score * 100).toFixed(0)}%`;
@@ -920,24 +930,25 @@
                 label = `远距 ${(score * 100).toFixed(0)}%`;
             }
 
-            ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+            ctx.font = '11px sans-serif';
             const textWidth = ctx.measureText(label).width;
             const textHeight = 14;
-            const padding = 3;
+            const pad = 3;
             const labelY = y - 6;
 
-            const bgColor = 'rgba(15, 15, 26, 0.55)';
-            const textX = x + padding;
+            const bgColor = 'rgba(0, 0, 0, 0.65)';
+            const textColor = isReliable ? '#ffffff' : '#ffd60a';
+            const textX = x + pad;
 
             if (labelY - textHeight > 0) {
                 ctx.fillStyle = bgColor;
-                ctx.fillRect(x, labelY - textHeight, textWidth + padding * 2, textHeight + padding);
-                ctx.fillStyle = isReliable ? 'rgba(255, 255, 255, 0.85)' : 'rgba(253, 203, 110, 0.85)';
+                ctx.fillRect(x, labelY - textHeight, textWidth + pad * 2, textHeight + pad);
+                ctx.fillStyle = textColor;
                 ctx.fillText(label, textX, labelY - 3);
             } else {
                 ctx.fillStyle = bgColor;
-                ctx.fillRect(x, y + 1, textWidth + padding * 2, textHeight + padding);
-                ctx.fillStyle = isReliable ? 'rgba(255, 255, 255, 0.85)' : 'rgba(253, 203, 110, 0.85)';
+                ctx.fillRect(x, y + 1, textWidth + pad * 2, textHeight + pad);
+                ctx.fillStyle = textColor;
                 ctx.fillText(label, textX, y + textHeight - 1);
             }
 
