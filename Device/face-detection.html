@@ -79,6 +79,29 @@
             height: 16px;
         }
 
+        .mode-toggle {
+            padding: 6px 14px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            background: #16213e;
+            color: #74b9ff;
+            font-size: 0.85rem;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.3s;
+        }
+
+        .mode-toggle:hover {
+            border-color: #74b9ff;
+        }
+
+        .mode-toggle.classroom {
+            background: #fdcb6e;
+            color: #2d3436;
+            border-color: #fdcb6e;
+            font-weight: 600;
+        }
+
         /* ---- 画面容器 ---- */
         .container {
             position: relative;
@@ -267,6 +290,7 @@
             <input type="checkbox" id="mirrorCheckbox" checked>
             🪞 镜像翻转
         </label>
+        <button class="mode-toggle" id="modeToggleBtn" title="切换大教室分块检测模式">🏫 普通模式</button>
     </div>
 
     <div class="container">
@@ -317,6 +341,7 @@
         const debugVideoSize = document.getElementById('debugVideoSize');
         const debugLastScore = document.getElementById('debugLastScore');
         const debugEngine = document.getElementById('debugEngine');
+        const modeToggleBtn = document.getElementById('modeToggleBtn');
 
         // ========== MediaPipe 配置 ==========
         const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
@@ -338,6 +363,14 @@
         let currentClassroomState = 'away';
         let stateChangedAt = Date.now();
         let durationTimerStarted = false;
+
+        // 检测模式：'normal' | 'classroom'
+        let detectionMode = 'normal';
+        const GRID_COLS = 3;          // 大教室模式：3列
+        const GRID_ROWS = 2;          // 大教室模式：2行（共6块）
+        const DETECT_INTERVAL_MS = 250; // 大教室模式节流：250ms 检测一次
+        let lastDetectTime = 0;
+        let lastDetections = [];       // 缓存最近一次检测结果
 
         // 调试
         let debugLastLog = 0;
@@ -453,8 +486,8 @@
 
             const constraints = {
                 video: {
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 }
                 }
             };
             if (deviceId) constraints.video.deviceId = { exact: deviceId };
@@ -492,32 +525,24 @@
             const vision = await FilesetResolver.forVisionTasks(WASM_URL);
             console.log('✅ WASM 运行时就绪');
 
-            // 尝试 GPU，失败则降级 CPU
+            // IMAGE 模式：支持传入 canvas，用于分块检测
             let delegate = 'GPU';
+            const baseOptions = (d) => ({
+                baseOptions: { modelAssetPath: MODEL_URL, delegate: d },
+                runningMode: 'IMAGE',
+                minDetectionConfidence: 0.2
+            });
+
             try {
-                faceDetector = await FaceDetector.createFromOptions(vision, {
-                    baseOptions: {
-                        modelAssetPath: MODEL_URL,
-                        delegate: 'GPU'
-                    },
-                    runningMode: 'VIDEO',
-                    minDetectionConfidence: 0.3
-                });
+                faceDetector = await FaceDetector.createFromOptions(vision, baseOptions('GPU'));
             } catch (gpuErr) {
                 console.warn('⚠️ GPU 不可用，降级为 CPU:', gpuErr.message || gpuErr);
                 delegate = 'CPU';
-                faceDetector = await FaceDetector.createFromOptions(vision, {
-                    baseOptions: {
-                        modelAssetPath: MODEL_URL,
-                        delegate: 'CPU'
-                    },
-                    runningMode: 'VIDEO',
-                    minDetectionConfidence: 0.3
-                });
+                faceDetector = await FaceDetector.createFromOptions(vision, baseOptions('CPU'));
             }
 
-            debugEngine.textContent = `引擎: MediaPipe (${delegate})`;
-            console.log(`✅ 模型加载成功 (${delegate})`);
+            debugEngine.textContent = `引擎: MediaPipe IMAGE (${delegate})`;
+            console.log(`✅ 模型加载成功 (${delegate}, IMAGE 模式, 置信度 0.2)`);
         }
 
         // ========== 人脸检测 + 绘制 ==========
@@ -525,6 +550,209 @@
         const KEYPOINT_NAMES = ['左眼', '右眼', '鼻尖', '嘴', '左耳', '右耳'];
         const KEYPOINT_COLORS = ['#00e5ff', '#00e5ff', '#ffea00', '#ff6d00', '#76ff03', '#76ff03'];
 
+        // ---- 工具：video → canvas ----
+        function videoToCanvas(targetCanvas) {
+            const targetCtx = targetCanvas.getContext('2d', { willReadFrequently: true });
+            targetCanvas.width = video.videoWidth;
+            targetCanvas.height = video.videoHeight;
+            targetCtx.drawImage(video, 0, 0);
+        }
+
+        // ---- 工具：在 canvas 上检测人脸 ----
+        async function detectOnCanvas(sourceCanvas) {
+            if (!faceDetector) return { detections: [] };
+            try {
+                return faceDetector.detect(sourceCanvas);
+            } catch (e) {
+                console.error('检测出错:', e.message || e);
+                return { detections: [] };
+            }
+        }
+
+        // ---- 大教室模式：2×3 网格分块检测 ----
+        async function detectGrid() {
+            const fullW = video.videoWidth;
+            const fullH = video.videoHeight;
+            if (!fullW || !fullH) return [];
+
+            // 1) video → 全幅 canvas
+            const fullCanvas = document.createElement('canvas');
+            const fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
+            fullCanvas.width = fullW;
+            fullCanvas.height = fullH;
+            fullCtx.drawImage(video, 0, 0);
+
+            const tileW = fullW / GRID_COLS;
+            const tileH = fullH / GRID_ROWS;
+            const allDetections = [];
+
+            // 2) 逐块检测
+            for (let row = 0; row < GRID_ROWS; row++) {
+                for (let col = 0; col < GRID_COLS; col++) {
+                    const srcX = Math.floor(col * tileW);
+                    const srcY = Math.floor(row * tileH);
+                    const srcW = Math.ceil(tileW);
+                    const srcH = Math.ceil(tileH);
+
+                    const tileCanvas = document.createElement('canvas');
+                    tileCanvas.width = srcW;
+                    tileCanvas.height = srcH;
+                    const tileCtx = tileCanvas.getContext('2d', { willReadFrequently: true });
+                    tileCtx.drawImage(fullCanvas, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH);
+
+                    const result = await detectOnCanvas(tileCanvas);
+                    if (result.detections) {
+                        for (const det of result.detections) {
+                            // 坐标映射回原始画面
+                            det.boundingBox.originX += srcX;
+                            det.boundingBox.originY += srcY;
+                            if (det.keypoints) {
+                                for (const kp of det.keypoints) {
+                                    kp.x += srcX;
+                                    kp.y += srcY;
+                                }
+                            }
+                            det._gridRow = row;
+                            det._gridCol = col;
+                            allDetections.push(det);
+                        }
+                    }
+                }
+            }
+
+            // 3) 去重：合并高度重叠的框（IoU > 0.5）
+            return mergeDetections(allDetections);
+        }
+
+        function mergeDetections(detections) {
+            if (detections.length <= 1) return detections;
+
+            // 按置信度降序排列
+            detections.sort((a, b) => {
+                const sa = a.categories?.[0]?.score ?? 0;
+                const sb = b.categories?.[0]?.score ?? 0;
+                return sb - sa;
+            });
+
+            const merged = [];
+            const suppressed = new Set();
+
+            for (let i = 0; i < detections.length; i++) {
+                if (suppressed.has(i)) continue;
+                merged.push(detections[i]);
+                const boxA = detections[i].boundingBox;
+
+                for (let j = i + 1; j < detections.length; j++) {
+                    if (suppressed.has(j)) continue;
+                    const boxB = detections[j].boundingBox;
+
+                    // 计算 IoU
+                    const ax1 = boxA.originX, ay1 = boxA.originY;
+                    const ax2 = ax1 + boxA.width, ay2 = ay1 + boxA.height;
+                    const bx1 = boxB.originX, by1 = boxB.originY;
+                    const bx2 = bx1 + boxB.width, by2 = by1 + boxB.height;
+
+                    const interX = Math.max(0, Math.min(ax2, bx2) - Math.max(ax1, bx1));
+                    const interY = Math.max(0, Math.min(ay2, by2) - Math.max(ay1, by1));
+                    const interArea = interX * interY;
+                    const unionArea = boxA.width * boxA.height + boxB.width * boxB.height - interArea;
+
+                    if (unionArea > 0 && interArea / unionArea > 0.5) {
+                        suppressed.add(j);
+                    }
+                }
+            }
+
+            return merged;
+        }
+
+        // ---- 绘制单个检测框（复用） ----
+        function drawOneDetection(det, displayWidth) {
+            const box = det.boundingBox;
+            const x = box.originX;
+            const y = box.originY;
+            const w = box.width;
+            const h = box.height;
+            const score = det.categories?.[0]?.score ?? 0;
+
+            // 红色发光边框
+            ctx.strokeStyle = '#ff1744';
+            ctx.lineWidth = Math.max(3, displayWidth / 200);
+            ctx.shadowColor = '#ff1744';
+            ctx.shadowBlur = 12;
+            ctx.strokeRect(x, y, w, h);
+            ctx.shadowBlur = 0;
+
+            // 四角标记
+            const cornerLen = Math.min(w, h) * 0.25;
+            ctx.strokeStyle = '#ff5252';
+            ctx.lineWidth = Math.max(4, displayWidth / 130);
+            [
+                [x, y, 1, 1], [x + w, y, -1, 1],
+                [x, y + h, 1, -1], [x + w, y + h, -1, -1]
+            ].forEach(([cx, cy, dx, dy]) => {
+                ctx.beginPath();
+                ctx.moveTo(cx, cy + dy * cornerLen);
+                ctx.lineTo(cx, cy);
+                ctx.lineTo(cx + dx * cornerLen, cy);
+                ctx.stroke();
+            });
+
+            // 置信度标签
+            const label = `Face ${(score * 100).toFixed(0)}%`;
+            const fontSize = Math.max(12, displayWidth / 60);
+            ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+            const textWidth = ctx.measureText(label).width;
+            const textHeight = fontSize + 4;
+            const padding = 4;
+            const labelY = y - 8;
+
+            if (labelY - textHeight > 0) {
+                ctx.fillStyle = 'rgba(255, 23, 68, 0.85)';
+                ctx.fillRect(x, labelY - textHeight, textWidth + padding * 2, textHeight + padding);
+                ctx.fillStyle = '#fff';
+                ctx.fillText(label, x + padding, labelY - 4);
+            } else {
+                ctx.fillStyle = 'rgba(255, 23, 68, 0.85)';
+                ctx.fillRect(x, y + 2, textWidth + padding * 2, textHeight + padding);
+                ctx.fillStyle = '#fff';
+                ctx.fillText(label, x + padding, y + textHeight);
+            }
+
+            // 关键点
+            if (det.keypoints && det.keypoints.length > 0) {
+                det.keypoints.forEach((kp, idx) => {
+                    let kpX = kp.x, kpY = kp.y;
+                    if (kpX <= 1 && kpY <= 1 && (kpX > 0 || kpY > 0)) {
+                        kpX *= canvas.width;
+                        kpY *= canvas.height;
+                    }
+                    if (kpX === 0 && kpY === 0) return;
+
+                    const pointSize = Math.max(3, displayWidth / 350);
+                    ctx.beginPath();
+                    ctx.arc(kpX, kpY, pointSize + 2, 0, 2 * Math.PI);
+                    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(kpX, kpY, pointSize, 0, 2 * Math.PI);
+                    ctx.fillStyle = KEYPOINT_COLORS[idx] || '#fff';
+                    ctx.fill();
+
+                    const kpLabel = KEYPOINT_NAMES[idx];
+                    if (kpLabel) {
+                        ctx.fillStyle = '#fff';
+                        ctx.font = `${Math.max(9, displayWidth / 90)}px -apple-system, BlinkMacSystemFont, sans-serif`;
+                        ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                        ctx.shadowBlur = 3;
+                        ctx.fillText(kpLabel, kpX + pointSize + 4, kpY + pointSize / 2);
+                        ctx.shadowBlur = 0;
+                    }
+                });
+            }
+        }
+
+        // ---- 主检测循环 ----
         async function detectAndDraw() {
             if (video.paused || video.ended) {
                 requestAnimationFrame(detectAndDraw);
@@ -545,144 +773,59 @@
                 console.log(`📐 canvas 尺寸更新: ${displayWidth}×${displayHeight}`);
             }
 
-            // 调试：更新视频尺寸
-            debugVideoSize.textContent = `视频: ${displayWidth}×${displayHeight}`;
+            debugVideoSize.textContent = `视频: ${displayWidth}×${displayHeight} | 模式: ${detectionMode === 'classroom' ? `${GRID_COLS}×${GRID_ROWS}分块` : '普通'}`;
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // === MediaPipe 检测 ===
-            let detections = [];
             const now = performance.now();
-            try {
-                if (faceDetector) {
-                    const result = faceDetector.detectForVideo(video, now);
-                    if (result && result.detections) {
-                        detections = result.detections;
+            let detections = [];
+
+            if (detectionMode === 'classroom') {
+                // ---- 大教室模式：节流 + 分块检测 ----
+                if (now - lastDetectTime >= DETECT_INTERVAL_MS) {
+                    lastDetectTime = now;
+                    try {
+                        detections = await detectGrid();
+                        lastDetections = detections;
+                    } catch (e) {
+                        console.error('分块检测出错:', e.message || e);
+                        detections = lastDetections;
                     }
+                } else {
+                    detections = lastDetections;
                 }
-            } catch (e) {
-                console.error('人脸检测出错:', e.message || e);
+            } else {
+                // ---- 普通模式：整帧检测 ----
+                try {
+                    const fullCanvas = document.createElement('canvas');
+                    videoToCanvas(fullCanvas);
+                    const result = await detectOnCanvas(fullCanvas);
+                    detections = result.detections || [];
+                } catch (e) {
+                    console.error('检测出错:', e.message || e);
+                }
             }
 
-            // 每秒调试日志
+            // 调试日志
             if (now - debugLastLog >= 1000) {
-                console.log(`🔍 检测到人脸数量: ${detections.length}`);
+                console.log(`🔍 [${detectionMode}] 检测到人脸数量: ${detections.length}`);
                 detections.forEach((det, i) => {
-                    const score = det.categories && det.categories[0] ? det.categories[0].score : '?';
-                    console.log(`  人脸 ${i + 1}: 置信度 ${(score * 100).toFixed(1)}%, 位置 (${Math.round(det.boundingBox.originX)}, ${Math.round(det.boundingBox.originY)}), 大小 ${Math.round(det.boundingBox.width)}×${Math.round(det.boundingBox.height)}`);
+                    const score = det.categories?.[0]?.score ?? 0;
+                    const gridInfo = det._gridRow !== undefined ? ` (块${det._gridRow},${det._gridCol})` : '';
+                    console.log(`  人脸 ${i + 1}: 置信度 ${(score * 100).toFixed(1)}%${gridInfo}, 位置 (${Math.round(det.boundingBox.originX)}, ${Math.round(det.boundingBox.originY)}), 大小 ${Math.round(det.boundingBox.width)}×${Math.round(det.boundingBox.height)}`);
                 });
                 debugLastLog = now;
             }
 
-            // 更新最后一次置信度
-            if (detections.length > 0 && detections[0].categories && detections[0].categories[0]) {
+            if (detections.length > 0 && detections[0].categories?.[0]) {
                 lastConfidence = detections[0].categories[0].score;
             } else if (detections.length === 0) {
                 lastConfidence = null;
             }
             debugLastScore.textContent = `最后置信度: ${lastConfidence ? (lastConfidence * 100).toFixed(0) + '%' : '--'}`;
 
-            // === 绘制每个检测到的人脸 ===
-            detections.forEach(det => {
-                const box = det.boundingBox;
-                const x = box.originX;
-                const y = box.originY;
-                const w = box.width;
-                const h = box.height;
-                const score = det.categories && det.categories[0] ? det.categories[0].score : 0;
-
-                // 红色发光边框
-                ctx.strokeStyle = '#ff1744';
-                ctx.lineWidth = Math.max(3, displayWidth / 200);
-                ctx.shadowColor = '#ff1744';
-                ctx.shadowBlur = 12;
-                ctx.strokeRect(x, y, w, h);
-                ctx.shadowBlur = 0;
-
-                // 四角加强标记
-                const cornerLen = Math.min(w, h) * 0.25;
-                ctx.strokeStyle = '#ff5252';
-                ctx.lineWidth = Math.max(4, displayWidth / 130);
-                [
-                    [x, y, 1, 1],
-                    [x + w, y, -1, 1],
-                    [x, y + h, 1, -1],
-                    [x + w, y + h, -1, -1]
-                ].forEach(([cx, cy, dx, dy]) => {
-                    ctx.beginPath();
-                    ctx.moveTo(cx, cy + dy * cornerLen);
-                    ctx.lineTo(cx, cy);
-                    ctx.lineTo(cx + dx * cornerLen, cy);
-                    ctx.stroke();
-                });
-
-                // 置信度标签
-                const label = `Face ${(score * 100).toFixed(0)}%`;
-                const fontSize = Math.max(12, displayWidth / 60);
-                ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
-                const textMetrics = ctx.measureText(label);
-                const textWidth = textMetrics.width;
-                const textHeight = fontSize + 4;
-                const padding = 4;
-                const labelY = y - 8;
-
-                if (labelY - textHeight > 0) {
-                    ctx.fillStyle = 'rgba(255, 23, 68, 0.85)';
-                    ctx.fillRect(x, labelY - textHeight, textWidth + padding * 2, textHeight + padding);
-                    ctx.fillStyle = '#fff';
-                    ctx.fillText(label, x + padding, labelY - 4);
-                } else {
-                    // 框太靠上，标签放框内顶部
-                    ctx.fillStyle = 'rgba(255, 23, 68, 0.85)';
-                    ctx.fillRect(x, y + 2, textWidth + padding * 2, textHeight + padding);
-                    ctx.fillStyle = '#fff';
-                    ctx.fillText(label, x + padding, y + textHeight);
-                }
-
-                // === 绘制 6 个关键点 ===
-                if (det.keypoints && det.keypoints.length > 0) {
-                    const kpScaleX = canvas.width;
-                    const kpScaleY = canvas.height;
-
-                    det.keypoints.forEach((kp, idx) => {
-                        // MediaPipe keypoints 可能是 0-1 归一化坐标，也可能是像素坐标
-                        let kpX = kp.x;
-                        let kpY = kp.y;
-                        // 判断：如果在 0-1 范围内，视为归一化坐标
-                        if (kpX <= 1 && kpY <= 1) {
-                            kpX *= kpScaleX;
-                            kpY *= kpScaleY;
-                        }
-
-                        if (kpX === 0 && kpY === 0) return; // 跳过无效点
-
-                        const pointSize = Math.max(3, displayWidth / 350);
-
-                        // 外圈发光
-                        ctx.beginPath();
-                        ctx.arc(kpX, kpY, pointSize + 2, 0, 2 * Math.PI);
-                        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-                        ctx.fill();
-
-                        // 内圈彩色
-                        ctx.beginPath();
-                        ctx.arc(kpX, kpY, pointSize, 0, 2 * Math.PI);
-                        ctx.fillStyle = KEYPOINT_COLORS[idx] || '#fff';
-                        ctx.fill();
-
-                        // 标签
-                        const kpLabel = KEYPOINT_NAMES[idx];
-                        if (kpLabel) {
-                            ctx.fillStyle = '#fff';
-                            ctx.font = `${Math.max(9, displayWidth / 90)}px -apple-system, BlinkMacSystemFont, sans-serif`;
-                            ctx.shadowColor = 'rgba(0,0,0,0.8)';
-                            ctx.shadowBlur = 3;
-                            ctx.fillText(kpLabel, kpX + pointSize + 4, kpY + pointSize / 2);
-                            ctx.shadowBlur = 0;
-                        }
-                    });
-                }
-            });
+            // 绘制
+            detections.forEach(det => drawOneDetection(det, displayWidth));
 
             // 更新 UI
             faceCountEl.textContent = `检测到: ${detections.length} 人`;
@@ -698,6 +841,24 @@
 
             requestAnimationFrame(detectAndDraw);
         }
+
+        // ---- 模式切换 ----
+        modeToggleBtn.addEventListener('click', () => {
+            if (detectionMode === 'normal') {
+                detectionMode = 'classroom';
+                modeToggleBtn.textContent = '🏫 大教室模式';
+                modeToggleBtn.classList.add('classroom');
+                lastDetections = [];
+                lastDetectTime = 0;
+                console.log('🔀 切换为大教室模式（3×2 分块检测，250ms 节流，置信度 0.2）');
+            } else {
+                detectionMode = 'normal';
+                modeToggleBtn.textContent = '🏫 普通模式';
+                modeToggleBtn.classList.remove('classroom');
+                lastDetections = [];
+                console.log('🔀 切换为普通模式（整帧检测）');
+            }
+        });
 
         // ========== 事件监听 ==========
         cameraSelect.addEventListener('change', async () => {
