@@ -311,7 +311,7 @@
 
     <!-- MediaPipe Tasks Vision -->
     <script type="module">
-        import { FaceDetector, FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
+        import { FaceDetector, FaceLandmarker, PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
 
         // ========== DOM 元素 ==========
         const video = document.getElementById('video');
@@ -335,10 +335,12 @@
         const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
         const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_full_range/float16/latest/blaze_face_full_range.tflite";
         const LANDMARKER_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
+        const POSE_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task";
 
         // ========== 全局状态 ==========
         let faceDetector = null;
         let faceLandmarker = null;
+        let poseLandmarker = null;
         let currentStream = null;
         let lastTime = performance.now();
         let frameCount = 0;
@@ -526,37 +528,29 @@
             const vision = await FilesetResolver.forVisionTasks(WASM_URL);
             console.log('✅ WASM 运行时就绪');
 
-            // 并行加载 FaceDetector + FaceLandmarker
             let delegate = 'GPU';
-            const detectorOpts = (d) => ({
-                baseOptions: { modelAssetPath: MODEL_URL, delegate: d },
-                runningMode: 'IMAGE',
-                minDetectionConfidence: 0.3
-            });
-            const landmarkerOpts = (d) => ({
-                baseOptions: { modelAssetPath: LANDMARKER_URL, delegate: d },
-                runningMode: 'IMAGE',
-                numFaces: 1,
-                minFaceDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
+            const detOpts = (d) => ({ baseOptions: { modelAssetPath: MODEL_URL, delegate: d }, runningMode: 'IMAGE', minDetectionConfidence: 0.3 });
+            const lmOpts = (d) => ({ baseOptions: { modelAssetPath: LANDMARKER_URL, delegate: d }, runningMode: 'IMAGE', numFaces: 1, minFaceDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+            const poseOpts = (d) => ({ baseOptions: { modelAssetPath: POSE_URL, delegate: d }, runningMode: 'IMAGE', numPoses: 5, minPoseDetectionConfidence: 0.3, minTrackingConfidence: 0.3 });
 
             try {
-                [faceDetector, faceLandmarker] = await Promise.all([
-                    FaceDetector.createFromOptions(vision, detectorOpts('GPU')),
-                    FaceLandmarker.createFromOptions(vision, landmarkerOpts('GPU'))
+                [faceDetector, faceLandmarker, poseLandmarker] = await Promise.all([
+                    FaceDetector.createFromOptions(vision, detOpts('GPU')),
+                    FaceLandmarker.createFromOptions(vision, lmOpts('GPU')),
+                    PoseLandmarker.createFromOptions(vision, poseOpts('GPU'))
                 ]);
             } catch (gpuErr) {
-                console.warn('⚠️ GPU 不可用，降级为 CPU:', gpuErr.message || gpuErr);
+                console.warn('⚠️ GPU 不可用，降级 CPU:', gpuErr.message || gpuErr);
                 delegate = 'CPU';
-                [faceDetector, faceLandmarker] = await Promise.all([
-                    FaceDetector.createFromOptions(vision, detectorOpts('CPU')),
-                    FaceLandmarker.createFromOptions(vision, landmarkerOpts('CPU'))
+                [faceDetector, faceLandmarker, poseLandmarker] = await Promise.all([
+                    FaceDetector.createFromOptions(vision, detOpts('CPU')),
+                    FaceLandmarker.createFromOptions(vision, lmOpts('CPU')),
+                    PoseLandmarker.createFromOptions(vision, poseOpts('CPU'))
                 ]);
             }
 
-            debugEngine.textContent = `引擎: Detector+Landmarker IMAGE (${delegate})`;
-            console.log(`✅ 双模型加载成功 (${delegate})`);
+            debugEngine.textContent = `引擎: Detector+Pose (${delegate})`;
+            console.log(`✅ 三模型加载成功 (${delegate}): FaceDetector + FaceLandmarker + PoseLandmarker`);
         }
 
         // ========== 人脸检测 + 绘制 ==========
@@ -734,29 +728,95 @@
             };
         }
 
-        async function runFaceLandmarker(sourceCanvas, faceBox) {
+        // Face Landmarker 辅助（仅可靠人脸使用）
+        async function runFaceLandmarkerDirect(sourceCanvas, faceBox) {
             if (!faceLandmarker) return null;
-            // 裁剪人脸区域
             const fx = Math.max(0, Math.floor(faceBox.originX));
             const fy = Math.max(0, Math.floor(faceBox.originY));
-            const fw = Math.ceil(faceBox.width);
-            const fh = Math.ceil(faceBox.height);
-
-            const faceCanvas = document.createElement('canvas');
-            faceCanvas.width = fw;
-            faceCanvas.height = fh;
-            const faceCtx = faceCanvas.getContext('2d', { willReadFrequently: true });
-            faceCtx.drawImage(sourceCanvas, fx, fy, fw, fh, 0, 0, fw, fh);
-
+            const fw = Math.ceil(faceBox.width), fh = Math.ceil(faceBox.height);
+            const fc = document.createElement('canvas'); fc.width = fw; fc.height = fh;
+            const fctx = fc.getContext('2d', { willReadFrequently: true });
+            fctx.drawImage(sourceCanvas, fx, fy, fw, fh, 0, 0, fw, fh);
             try {
-                const result = faceLandmarker.detect(faceCanvas);
-                if (result.faceLandmarks && result.faceLandmarks.length > 0) {
-                    return estimateHeadPoseFromLandmarks(result.faceLandmarks[0]);
-                }
-            } catch (e) {
-                // 静默失败
-            }
+                const r = faceLandmarker.detect(fc);
+                if (r.faceLandmarks && r.faceLandmarks.length > 0) return estimateHeadPoseFromLandmarks(r.faceLandmarks[0]);
+            } catch (e) {}
             return null;
+        }
+
+        // ========== Pose Landmarker：全帧人体姿态 → 匹配到人 ==========
+        async function detectPoses(sourceCanvas) {
+            if (!poseLandmarker) return [];
+            try {
+                const result = poseLandmarker.detect(sourceCanvas);
+                return result.landmarks || []; // Array<NormalizedLandmark[]>, 每人一组33点
+            } catch (e) { return []; }
+        }
+
+        function matchFaceToPose(faceBox, poses, canvasW, canvasH) {
+            const fx = faceBox.originX + faceBox.width / 2;
+            const fy = faceBox.originY + faceBox.height;
+            let bestDist = Infinity, bestPose = null;
+
+            for (const lm of poses) {
+                // 用鼻子(0)或肩中点(11+12)判断人体中心
+                const nose = lm[0];
+                const lSh = lm[11], rSh = lm[12];
+                let cx, cy;
+                if (lSh && rSh && lSh.visibility > 0.3 && rSh.visibility > 0.3) {
+                    cx = ((lSh.x + rSh.x) / 2) * canvasW;
+                    cy = ((lSh.y + rSh.y) / 2) * canvasH;
+                } else if (nose && nose.visibility > 0.3) {
+                    cx = nose.x * canvasW;
+                    cy = nose.y * canvasH;
+                } else continue;
+
+                const dist = Math.hypot(cx - fx, cy - fy);
+                if (dist < bestDist) { bestDist = dist; bestPose = lm; }
+            }
+            // 距离必须合理（< 脸宽的 3 倍）
+            if (bestDist < faceBox.width * 3) return bestPose;
+            return null;
+        }
+
+        function derivePoseState(poseLandmarks, canvasW, canvasH) {
+            if (!poseLandmarks || poseLandmarks.length < 13) return null;
+
+            const nose = poseLandmarks[0];
+            const lEye = poseLandmarks[2];  // left eye
+            const rEye = poseLandmarks[5];  // right eye
+            const lEar = poseLandmarks[7];
+            const rEar = poseLandmarks[8];
+            const lSh = poseLandmarks[11];
+            const rSh = poseLandmarks[12];
+
+            const hasHead = nose && nose.visibility > 0.3;
+            const hasEyes = lEye && rEye && lEye.visibility > 0.2 && rEye.visibility > 0.2;
+            const hasShoulders = lSh && rSh && lSh.visibility > 0.3 && rSh.visibility > 0.3;
+
+            if (!hasHead) {
+                if (hasShoulders) return { state: 'sleep', label: '疑似睡觉', detail: '有身体但无头部' };
+                return null;
+            }
+
+            if (!hasShoulders) return { state: 'unknown', label: '无法判断', detail: '无肩部参考' };
+
+            // 肩中点 Y
+            const midShY = (lSh.y + rSh.y) / 2;
+            const noseY = nose.y;
+            const eyeMidY = hasEyes ? (lEye.y + rEye.y) / 2 : noseY;
+
+            // 头部在肩上方 → 抬头；鼻子接近/低于肩线 → 看桌面
+            const headAboveShoulders = eyeMidY < midShY - 0.05;
+            const noseNearShoulder = noseY > midShY - 0.03;
+
+            if (headAboveShoulders && !noseNearShoulder) {
+                return { state: 'up', label: '抬头', detail: `眼高于肩${((midShY-eyeMidY)*100).toFixed(0)}%` };
+            }
+            if (noseNearShoulder) {
+                return { state: 'down', label: '看桌面', detail: `鼻近肩线` };
+            }
+            return { state: 'unknown', label: '无法判断', detail: '姿态模糊' };
         }
 
         // ========== 学习状态判断 ==========
@@ -786,13 +846,19 @@
         }
 
         function deriveCandidateState(track) {
-            // 有 headPose → 用姿态判断
+            // 优先用 Pose 数据（肩部参考线更可靠）
+            if (track.poseState) {
+                if (track.poseState.state === 'up') return '抬头';
+                if (track.poseState.state === 'down') return '看桌面';
+                if (track.poseState.state === 'sleep') return '疑似睡觉';
+            }
+            // 回退：Face Landmarker
             if (track.headPose) {
                 if (track.headPose.state === 'up' || track.headPose.state === 'normal') return '抬头';
                 if (track.headPose.state === 'down') return '看桌面';
                 if (track.headPose.state === 'side') return '无法判断';
             }
-            // 可靠人脸但没跑 landmarker → 抬头（人脸清晰）
+            // 可靠人脸 → 抬头
             if (track._class === 'reliable') return '抬头';
             // 远距离 → 无法判断
             return '无法判断';
@@ -871,8 +937,9 @@
                         console.log(`  🧑 人脸${track.id}:`, {
                             box: `${Math.round(track.box.width)}×${Math.round(track.box.height)}`,
                             class: track._class,
+                            poseState: track.poseState ? track.poseState.label : 'null',
+                            poseDetail: track.poseState ? track.poseState.detail : '',
                             headPose: track.headPose ? track.headPose.label : 'null',
-                            headPoseRaw: track.headPose ? `p${track.headPose.pitchRatio} y${track.headPose.yawRatio}` : 'null',
                             candidateState: candidate,
                             finalState: track.studyState
                         });
@@ -1124,13 +1191,26 @@
             const reliableFaces = displayFaces.filter(f => f._class === 'reliable');
             const distantFaces = displayFaces.filter(f => f._class === 'distant');
 
-            // Face Landmarker：可靠人脸 ≥90px
+            // === Pose Landmarker：全帧一次 → 匹配到各人脸 ===
             const fc = document.createElement('canvas');
-            let fcReady = false;
+            videoToCanvas(fc);
+            const poses = await detectPoses(fc);
+            const canvasW = fc.width, canvasH = fc.height;
+
             for (const face of displayFaces) {
+                // 匹配最近的人体姿态
+                const matchedPose = matchFaceToPose(face.box, poses, canvasW, canvasH);
+                if (matchedPose) {
+                    face.poseLandmarks = matchedPose;
+                    face.poseState = derivePoseState(matchedPose, canvasW, canvasH);
+                } else {
+                    face.poseLandmarks = null;
+                    face.poseState = null;
+                }
+
+                // Face Landmarker：可靠人脸 ≥90px（作为辅助）
                 if (face._class === 'reliable' && face.box.width >= 90 && face.box.height >= 90) {
-                    if (!fcReady) { videoToCanvas(fc); fcReady = true; }
-                    face.headPose = await runFaceLandmarker(fc, face.box);
+                    face.headPose = await runFaceLandmarkerDirect(fc, face.box);
                 } else {
                     face.headPose = null;
                 }
