@@ -120,10 +120,6 @@
             height: auto;
         }
 
-        #video.mirrored {
-            transform: scaleX(-1);
-        }
-
         #canvas {
             position: absolute;
             top: 0;
@@ -132,10 +128,6 @@
             height: 100%;
             z-index: 2;
             pointer-events: none;
-        }
-
-        #canvas.mirrored {
-            transform: scaleX(-1);
         }
 
         /* ---- 信息栏 ---- */
@@ -282,10 +274,6 @@
         <select id="cameraSelect">
             <option value="">正在枚举设备...</option>
         </select>
-        <label class="mirror-toggle">
-            <input type="checkbox" id="mirrorCheckbox" checked>
-            🪞 镜像翻转
-        </label>
         <button class="mode-toggle" id="modeToggleBtn" title="切换大教室分块检测模式">🏫 普通模式</button>
         <label class="mirror-toggle">
             <input type="checkbox" id="showBoxCheckbox" checked>
@@ -294,8 +282,8 @@
     </div>
 
     <div class="container">
-        <video id="video" class="mirrored" autoplay muted playsinline></video>
-        <canvas id="canvas" class="mirrored"></canvas>
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="canvas"></canvas>
     </div>
 
     <div class="info-bar">
@@ -333,7 +321,6 @@
         const faceCountEl = document.getElementById('faceCount');
         const fpsEl = document.getElementById('fps');
         const cameraSelect = document.getElementById('cameraSelect');
-        const mirrorCheckbox = document.getElementById('mirrorCheckbox');
         const permissionHelp = document.getElementById('permissionHelp');
         const retryCameraBtn = document.getElementById('retryCameraBtn');
         const classroomStatusEl = document.getElementById('classroomStatus');
@@ -530,17 +517,6 @@
             } catch (err) {
                 showCameraError(err);
                 throw err;
-            }
-        }
-
-        function applyMirror() {
-            const mirrored = mirrorCheckbox.checked;
-            if (mirrored) {
-                video.classList.add('mirrored');
-                canvas.classList.add('mirrored');
-            } else {
-                video.classList.remove('mirrored');
-                canvas.classList.remove('mirrored');
             }
         }
 
@@ -1240,8 +1216,6 @@
             } catch (e) { /* 已在 startCamera 处理 */ }
         });
 
-        mirrorCheckbox.addEventListener('change', applyMirror);
-
         showBoxCheckbox.addEventListener('change', () => {
             showDetectionBox = showBoxCheckbox.checked;
             console.log(`👁 显示检测框: ${showDetectionBox ? '开启' : '关闭（仅统计人数）'}`);
@@ -1279,7 +1253,6 @@
                 statusEl.textContent = '⏳ 下载AI模型中...';
                 await Promise.all([loadModels(), startCamera(selectedId)]);
 
-                applyMirror();
                 permissionHelp.classList.remove('visible');
                 statusEl.textContent = '✅ 检测中';
                 statusEl.className = 'status ready';
