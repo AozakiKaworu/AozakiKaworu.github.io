@@ -82,19 +82,25 @@
         /* ---- 画面容器 ---- */
         .container {
             position: relative;
-            width: 100%;
-            max-width: 960px;
+            width: min(96vw, 1100px);
+            aspect-ratio: 16 / 9;
             border-radius: 16px;
             overflow: hidden;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
             background: #000;
         }
 
+        #video,
+        #canvas {
+            width: 100%;
+            height: 100%;
+        }
+
         #video {
             position: relative;
             z-index: 1;
-            width: 100%;
             display: block;
+            object-fit: cover;
         }
 
         #video.mirrored {
@@ -105,8 +111,6 @@
             position: absolute;
             top: 0;
             left: 0;
-            width: 100%;
-            height: 100%;
             z-index: 2;
             pointer-events: none;
         }
@@ -333,6 +337,7 @@
         // 状态时长追踪
         let currentClassroomState = 'away';
         let stateChangedAt = Date.now();
+        let durationTimerStarted = false;
 
         // 调试
         let debugLastLog = 0;
@@ -370,6 +375,10 @@
         }
 
         function updateDurationDisplay() {
+            if (!stateChangedAt) {
+                stateDurationEl.textContent = '持续：--';
+                return;
+            }
             const elapsed = Math.floor((Date.now() - stateChangedAt) / 1000);
             const mm = Math.floor(elapsed / 60);
             const ss = elapsed % 60;
@@ -693,7 +702,6 @@
         });
 
         mirrorCheckbox.addEventListener('change', applyMirror);
-        setInterval(updateDurationDisplay, 1000);
 
         retryCameraBtn.addEventListener('click', async () => {
             try {
@@ -731,6 +739,13 @@
                 permissionHelp.classList.remove('visible');
                 statusEl.textContent = '✅ 检测中';
                 statusEl.className = 'status ready';
+
+                // 启动持续时间刷新定时器（只启动一次）
+                if (!durationTimerStarted) {
+                    durationTimerStarted = true;
+                    updateDurationDisplay();
+                    setInterval(updateDurationDisplay, 1000);
+                }
 
                 if (!detectLoopStarted) {
                     detectLoopStarted = true;
