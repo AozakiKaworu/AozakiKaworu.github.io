@@ -229,6 +229,24 @@
         .retry-button:hover {
             background: #ff5c76;
         }
+
+        /* ---- 调试信息 ---- */
+        .debug-info {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+            font-size: 0.75rem;
+            color: #888;
+        }
+
+        .debug-info span {
+            padding: 3px 10px;
+            border-radius: 10px;
+            background: rgba(22, 33, 62, 0.6);
+        }
     </style>
 </head>
 <body>
@@ -260,6 +278,13 @@
         <span class="fps" id="fps">FPS: --</span>
     </div>
 
+    <!-- 调试信息 -->
+    <div class="debug-info" id="debugInfo">
+        <span id="debugVideoSize">视频: --</span>
+        <span id="debugLastScore">最后置信度: --</span>
+        <span id="debugEngine">引擎: MediaPipe</span>
+    </div>
+
     <div class="permission-help" id="permissionHelp">
         摄像头权限被浏览器拒绝了。请点击地址栏左侧的网站权限图标，把摄像头改为“允许”，然后刷新页面或点击下面按钮。
         <br>
@@ -268,10 +293,11 @@
         <button class="retry-button" id="retryCameraBtn">重新请求摄像头</button>
     </div>
 
-    <!-- face-api.js -->
-    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/dist/face-api.js"></script>
+    <!-- MediaPipe Tasks Vision -->
+    <script type="module">
+        import { FaceDetector, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
 
-    <script>
+        // ========== DOM 元素 ==========
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -282,12 +308,18 @@
         const mirrorCheckbox = document.getElementById('mirrorCheckbox');
         const permissionHelp = document.getElementById('permissionHelp');
         const retryCameraBtn = document.getElementById('retryCameraBtn');
-
-        const MODEL_URL = 'https://vladmandic.github.io/face-api/model';
-
         const classroomStatusEl = document.getElementById('classroomStatus');
         const stateDurationEl = document.getElementById('stateDuration');
+        const debugVideoSize = document.getElementById('debugVideoSize');
+        const debugLastScore = document.getElementById('debugLastScore');
+        const debugEngine = document.getElementById('debugEngine');
 
+        // ========== MediaPipe 配置 ==========
+        const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
+        const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite";
+
+        // ========== 全局状态 ==========
+        let faceDetector = null;
         let currentStream = null;
         let lastTime = performance.now();
         let frameCount = 0;
@@ -295,54 +327,48 @@
         let detectLoopStarted = false;
 
         // 课堂状态追踪
-        let noFaceSince = null;          // 首次检测不到脸的时间戳（null 表示当前有脸）
-        const AWAY_THRESHOLD_MS = 3000;  // 连续 3 秒无人脸 → 离开
+        let noFaceSince = null;
+        const AWAY_THRESHOLD_MS = 3000;
 
         // 状态时长追踪
-        let currentClassroomState = 'away';  // 当前课堂状态
-        let stateChangedAt = Date.now();     // 状态切换的时间戳
+        let currentClassroomState = 'away';
+        let stateChangedAt = Date.now();
 
+        // 调试
+        let debugLastLog = 0;
+        let lastConfidence = null;
+
+        // ========== 课堂状态 ==========
         function updateClassroomStatus(faceCount) {
-            let state, cssClass, text;
+            let state;
 
             if (faceCount >= 2) {
-                // 多人：立即生效
                 state = 'multi';
                 noFaceSince = null;
             } else if (faceCount === 1) {
-                // 在座：立即生效
                 state = 'present';
                 noFaceSince = null;
             } else {
-                // faceCount === 0：需要判断是否已持续 3 秒
                 const now = performance.now();
-                if (noFaceSince === null) {
-                    noFaceSince = now;
-                }
+                if (noFaceSince === null) noFaceSince = now;
                 if (now - noFaceSince >= AWAY_THRESHOLD_MS) {
                     state = 'away';
                 } else {
-                    // 还没到 3 秒，保持上一个状态不变
                     return;
                 }
             }
 
-            // 更新 DOM
             if (classroomStatusEl.dataset.state !== state) {
                 classroomStatusEl.dataset.state = state;
                 classroomStatusEl.className = 'classroom-status ' + state;
-
                 const labels = { present: '课堂状态：在座', away: '课堂状态：离开', multi: '课堂状态：多人' };
                 classroomStatusEl.textContent = labels[state];
-
-                // 记录状态变化
                 currentClassroomState = state;
                 stateChangedAt = Date.now();
                 updateDurationDisplay();
             }
         }
 
-        // 格式化时长显示
         function updateDurationDisplay() {
             const elapsed = Math.floor((Date.now() - stateChangedAt) / 1000);
             const mm = Math.floor(elapsed / 60);
@@ -350,6 +376,7 @@
             stateDurationEl.textContent = `持续：${mm}分${String(ss).padStart(2, '0')}秒`;
         }
 
+        // ========== 摄像头 ==========
         function showCameraError(err) {
             const isPermissionDenied = err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError');
             statusEl.textContent = isPermissionDenied
@@ -359,9 +386,7 @@
             permissionHelp.classList.add('visible');
         }
 
-        // ---------- 枚举所有摄像头 ----------
         async function enumerateCameras() {
-            // 先请求一次权限，否则 enumerateDevices 返回的 label 可能为空
             try {
                 const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
                 tempStream.getTracks().forEach(t => t.stop());
@@ -373,14 +398,12 @@
             const devices = await navigator.mediaDevices.enumerateDevices();
             const videoInputs = devices.filter(d => d.kind === 'videoinput');
 
-            // 调试：打印所有找到的视频设备
             console.log(`🔍 找到 ${videoInputs.length} 个视频设备:`);
             videoInputs.forEach((d, i) => {
                 console.log(`  [${i}] label="${d.label}" deviceId="${d.deviceId.slice(0, 30)}..." groupId="${d.groupId}"`);
             });
 
             cameraSelect.innerHTML = '';
-
             if (videoInputs.length === 0) {
                 cameraSelect.innerHTML = '<option value="">未检测到摄像头</option>';
                 return [];
@@ -393,8 +416,6 @@
                 cameraSelect.appendChild(option);
             });
 
-            // 默认选第一个（通常是外接相机优先，或内置）
-            // 尝试优先选择外接相机（label 中不含 "built-in" 的）
             const externalCam = videoInputs.find(d =>
                 d.label && !d.label.toLowerCase().includes('built-in') && !d.label.includes('内建')
             );
@@ -406,9 +427,7 @@
             return videoInputs;
         }
 
-        // ---------- 启动指定摄像头 ----------
         async function startCamera(deviceId) {
-            // 先停掉旧流
             if (currentStream) {
                 currentStream.getTracks().forEach(t => t.stop());
                 currentStream = null;
@@ -420,11 +439,7 @@
                     height: { ideal: 720 }
                 }
             };
-
-            // 如果指定了设备 ID，精确匹配
-            if (deviceId) {
-                constraints.video.deviceId = { exact: deviceId };
-            }
+            if (deviceId) constraints.video.deviceId = { exact: deviceId };
 
             try {
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -442,7 +457,6 @@
             }
         }
 
-        // ---------- 应用镜像设置 ----------
         function applyMirror() {
             const mirrored = mirrorCheckbox.checked;
             if (mirrored) {
@@ -454,21 +468,44 @@
             }
         }
 
-        // ---------- 加载人脸检测模型 ----------
+        // ========== 加载 MediaPipe 模型 ==========
         async function loadModels() {
-            console.log('🔧 初始化 TensorFlow 后端...');
-            await faceapi.tf.setBackend('webgl');
-            await faceapi.tf.ready();
-            console.log('✅ TensorFlow 后端:', faceapi.tf.getBackend());
+            console.log('🔧 初始化 MediaPipe WASM...');
+            const vision = await FilesetResolver.forVisionTasks(WASM_URL);
+            console.log('✅ WASM 运行时就绪');
 
-            console.log('📦 开始加载模型: ' + MODEL_URL);
-            await faceapi.nets.tinyFaceDetector.load(MODEL_URL);
-            console.log('✅ 模型加载成功');
+            // 尝试 GPU，失败则降级 CPU
+            let delegate = 'GPU';
+            try {
+                faceDetector = await FaceDetector.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: MODEL_URL,
+                        delegate: 'GPU'
+                    },
+                    runningMode: 'VIDEO',
+                    minDetectionConfidence: 0.3
+                });
+            } catch (gpuErr) {
+                console.warn('⚠️ GPU 不可用，降级为 CPU:', gpuErr.message || gpuErr);
+                delegate = 'CPU';
+                faceDetector = await FaceDetector.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: MODEL_URL,
+                        delegate: 'CPU'
+                    },
+                    runningMode: 'VIDEO',
+                    minDetectionConfidence: 0.3
+                });
+            }
+
+            debugEngine.textContent = `引擎: MediaPipe (${delegate})`;
+            console.log(`✅ 模型加载成功 (${delegate})`);
         }
 
-        // ---------- 检测并绘制 ----------
-        // 调试：每秒打印一次检测结果
-        let debugLastLog = 0;
+        // ========== 人脸检测 + 绘制 ==========
+        // 6 关键点名称（blaze_face_short_range）
+        const KEYPOINT_NAMES = ['左眼', '右眼', '鼻尖', '嘴', '左耳', '右耳'];
+        const KEYPOINT_COLORS = ['#00e5ff', '#00e5ff', '#ffea00', '#ff6d00', '#76ff03', '#76ff03'];
 
         async function detectAndDraw() {
             if (video.paused || video.ended) {
@@ -479,7 +516,6 @@
             const displayWidth = video.videoWidth;
             const displayHeight = video.videoHeight;
 
-            // video 尺寸为 0 时跳过本轮，下一帧继续
             if (!displayWidth || !displayHeight) {
                 requestAnimationFrame(detectAndDraw);
                 return;
@@ -491,53 +527,69 @@
                 console.log(`📐 canvas 尺寸更新: ${displayWidth}×${displayHeight}`);
             }
 
+            // 调试：更新视频尺寸
+            debugVideoSize.textContent = `视频: ${displayWidth}×${displayHeight}`;
+
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            const options = new faceapi.TinyFaceDetectorOptions({
-                inputSize: 416,
-                scoreThreshold: 0.3
-            });
-
+            // === MediaPipe 检测 ===
             let detections = [];
+            const now = performance.now();
             try {
-                const result = await faceapi.detectAllFaces(video, options);
-                detections = result;
+                if (faceDetector) {
+                    const result = faceDetector.detectForVideo(video, now);
+                    if (result && result.detections) {
+                        detections = result.detections;
+                    }
+                }
             } catch (e) {
                 console.error('人脸检测出错:', e.message || e);
             }
 
-            // 每秒打印一次调试信息
-            const now = performance.now();
+            // 每秒调试日志
             if (now - debugLastLog >= 1000) {
                 console.log(`🔍 检测到人脸数量: ${detections.length}`);
                 detections.forEach((det, i) => {
-                    console.log(`  人脸 ${i + 1}: 置信度 ${(det.score * 100).toFixed(1)}%, 位置 (${Math.round(det.box.x)}, ${Math.round(det.box.y)}), 大小 ${Math.round(det.box.width)}×${Math.round(det.box.height)}`);
+                    const score = det.categories && det.categories[0] ? det.categories[0].score : '?';
+                    console.log(`  人脸 ${i + 1}: 置信度 ${(score * 100).toFixed(1)}%, 位置 (${Math.round(det.boundingBox.originX)}, ${Math.round(det.boundingBox.originY)}), 大小 ${Math.round(det.boundingBox.width)}×${Math.round(det.boundingBox.height)}`);
                 });
                 debugLastLog = now;
             }
 
+            // 更新最后一次置信度
+            if (detections.length > 0 && detections[0].categories && detections[0].categories[0]) {
+                lastConfidence = detections[0].categories[0].score;
+            } else if (detections.length === 0) {
+                lastConfidence = null;
+            }
+            debugLastScore.textContent = `最后置信度: ${lastConfidence ? (lastConfidence * 100).toFixed(0) + '%' : '--'}`;
+
+            // === 绘制每个检测到的人脸 ===
             detections.forEach(det => {
-                const { x, y, width, height } = det.box;
-                const score = det.score;
+                const box = det.boundingBox;
+                const x = box.originX;
+                const y = box.originY;
+                const w = box.width;
+                const h = box.height;
+                const score = det.categories && det.categories[0] ? det.categories[0].score : 0;
 
                 // 红色发光边框
                 ctx.strokeStyle = '#ff1744';
                 ctx.lineWidth = Math.max(3, displayWidth / 200);
                 ctx.shadowColor = '#ff1744';
                 ctx.shadowBlur = 12;
-                ctx.strokeRect(x, y, width, height);
+                ctx.strokeRect(x, y, w, h);
                 ctx.shadowBlur = 0;
 
                 // 四角加强标记
-                const cornerLen = Math.min(width, height) * 0.25;
+                const cornerLen = Math.min(w, h) * 0.25;
                 ctx.strokeStyle = '#ff5252';
                 ctx.lineWidth = Math.max(4, displayWidth / 130);
-
                 [
-                    [x, y, 1, 1],           // 左上
-                    [x + width, y, -1, 1],  // 右上
-                    [x, y + height, 1, -1], // 左下
-                    [x + width, y + height, -1, -1] // 右下
+                    [x, y, 1, 1],
+                    [x + w, y, -1, 1],
+                    [x, y + h, 1, -1],
+                    [x + w, y + h, -1, -1]
                 ].forEach(([cx, cy, dx, dy]) => {
                     ctx.beginPath();
                     ctx.moveTo(cx, cy + dy * cornerLen);
@@ -548,22 +600,73 @@
 
                 // 置信度标签
                 const label = `Face ${(score * 100).toFixed(0)}%`;
-                const labelY = y - 8;
+                const fontSize = Math.max(12, displayWidth / 60);
+                ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
                 const textMetrics = ctx.measureText(label);
                 const textWidth = textMetrics.width;
-                const textHeight = 20;
+                const textHeight = fontSize + 4;
                 const padding = 4;
+                const labelY = y - 8;
 
-                // 标签背景
-                ctx.fillStyle = 'rgba(255, 23, 68, 0.85)';
-                ctx.fillRect(x, labelY - textHeight, textWidth + padding * 2, textHeight + padding);
+                if (labelY - textHeight > 0) {
+                    ctx.fillStyle = 'rgba(255, 23, 68, 0.85)';
+                    ctx.fillRect(x, labelY - textHeight, textWidth + padding * 2, textHeight + padding);
+                    ctx.fillStyle = '#fff';
+                    ctx.fillText(label, x + padding, labelY - 4);
+                } else {
+                    // 框太靠上，标签放框内顶部
+                    ctx.fillStyle = 'rgba(255, 23, 68, 0.85)';
+                    ctx.fillRect(x, y + 2, textWidth + padding * 2, textHeight + padding);
+                    ctx.fillStyle = '#fff';
+                    ctx.fillText(label, x + padding, y + textHeight);
+                }
 
-                // 标签文字
-                ctx.fillStyle = '#fff';
-                ctx.font = `${Math.max(12, displayWidth / 60)}px -apple-system, BlinkMacSystemFont, sans-serif`;
-                ctx.fillText(label, x + padding, labelY - 4);
+                // === 绘制 6 个关键点 ===
+                if (det.keypoints && det.keypoints.length > 0) {
+                    const kpScaleX = canvas.width;
+                    const kpScaleY = canvas.height;
+
+                    det.keypoints.forEach((kp, idx) => {
+                        // MediaPipe keypoints 可能是 0-1 归一化坐标，也可能是像素坐标
+                        let kpX = kp.x;
+                        let kpY = kp.y;
+                        // 判断：如果在 0-1 范围内，视为归一化坐标
+                        if (kpX <= 1 && kpY <= 1) {
+                            kpX *= kpScaleX;
+                            kpY *= kpScaleY;
+                        }
+
+                        if (kpX === 0 && kpY === 0) return; // 跳过无效点
+
+                        const pointSize = Math.max(3, displayWidth / 350);
+
+                        // 外圈发光
+                        ctx.beginPath();
+                        ctx.arc(kpX, kpY, pointSize + 2, 0, 2 * Math.PI);
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                        ctx.fill();
+
+                        // 内圈彩色
+                        ctx.beginPath();
+                        ctx.arc(kpX, kpY, pointSize, 0, 2 * Math.PI);
+                        ctx.fillStyle = KEYPOINT_COLORS[idx] || '#fff';
+                        ctx.fill();
+
+                        // 标签
+                        const kpLabel = KEYPOINT_NAMES[idx];
+                        if (kpLabel) {
+                            ctx.fillStyle = '#fff';
+                            ctx.font = `${Math.max(9, displayWidth / 90)}px -apple-system, BlinkMacSystemFont, sans-serif`;
+                            ctx.shadowColor = 'rgba(0,0,0,0.8)';
+                            ctx.shadowBlur = 3;
+                            ctx.fillText(kpLabel, kpX + pointSize + 4, kpY + pointSize / 2);
+                            ctx.shadowBlur = 0;
+                        }
+                    });
+                }
             });
 
+            // 更新 UI
             faceCountEl.textContent = `检测到: ${detections.length} 人`;
             updateClassroomStatus(detections.length);
 
@@ -578,7 +681,7 @@
             requestAnimationFrame(detectAndDraw);
         }
 
-        // ---------- 切换摄像头 ----------
+        // ========== 事件监听 ==========
         cameraSelect.addEventListener('change', async () => {
             statusEl.textContent = '⏳ 切换摄像头...';
             statusEl.className = 'status loading';
@@ -586,47 +689,11 @@
                 await startCamera(cameraSelect.value);
                 statusEl.textContent = '✅ 检测中';
                 statusEl.className = 'status ready';
-            } catch (e) {
-                // 错误已在 startCamera 中处理
-            }
+            } catch (e) { /* 已在 startCamera 处理 */ }
         });
 
-        // ---------- 镜像开关 ----------
         mirrorCheckbox.addEventListener('change', applyMirror);
-
-        // 每秒刷新状态持续时间
         setInterval(updateDurationDisplay, 1000);
-
-        // ---------- 主流程 ----------
-        (async function main() {
-            try {
-                // 枚举摄像头并填充下拉框
-                const cameras = await enumerateCameras();
-                if (cameras.length === 0) {
-                    statusEl.textContent = '⚠️ 未检测到摄像头设备';
-                    statusEl.className = 'status error';
-                    return;
-                }
-
-                // 并行：加载模型 + 启动摄像头（使用当前选中的设备）
-                const selectedId = cameraSelect.value;
-                statusEl.textContent = '⏳ 下载AI模型中...';
-                await Promise.all([loadModels(), startCamera(selectedId)]);
-
-                applyMirror();
-                permissionHelp.classList.remove('visible');
-                statusEl.textContent = '✅ 检测中';
-                statusEl.className = 'status ready';
-
-                if (!detectLoopStarted) {
-                    detectLoopStarted = true;
-                    detectAndDraw();
-                }
-            } catch (err) {
-                console.error('初始化失败:', err);
-                showCameraError(err);
-            }
-        })();
 
         retryCameraBtn.addEventListener('click', async () => {
             try {
@@ -645,6 +712,35 @@
                 showCameraError(err);
             }
         });
+
+        // ========== 主流程 ==========
+        (async function main() {
+            try {
+                const cameras = await enumerateCameras();
+                if (cameras.length === 0) {
+                    statusEl.textContent = '⚠️ 未检测到摄像头设备';
+                    statusEl.className = 'status error';
+                    return;
+                }
+
+                const selectedId = cameraSelect.value;
+                statusEl.textContent = '⏳ 下载AI模型中...';
+                await Promise.all([loadModels(), startCamera(selectedId)]);
+
+                applyMirror();
+                permissionHelp.classList.remove('visible');
+                statusEl.textContent = '✅ 检测中';
+                statusEl.className = 'status ready';
+
+                if (!detectLoopStarted) {
+                    detectLoopStarted = true;
+                    detectAndDraw();
+                }
+            } catch (err) {
+                console.error('初始化失败:', err);
+                showCameraError(err);
+            }
+        })();
     </script>
 </body>
 </html>
