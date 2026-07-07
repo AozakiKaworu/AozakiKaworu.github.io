@@ -763,10 +763,12 @@
                 const nose = lm[0];
                 const lSh = lm[11], rSh = lm[12];
                 let cx, cy;
-                if (lSh && rSh && lSh.visibility > 0.3 && rSh.visibility > 0.3) {
+                // visibility 可能 undefined → 视为可见
+                const vis = (kp) => kp && (kp.visibility === undefined || kp.visibility > 0.1);
+                if (vis(lSh) && vis(rSh)) {
                     cx = ((lSh.x + rSh.x) / 2) * canvasW;
                     cy = ((lSh.y + rSh.y) / 2) * canvasH;
-                } else if (nose && nose.visibility > 0.3) {
+                } else if (vis(nose)) {
                     cx = nose.x * canvasW;
                     cy = nose.y * canvasH;
                 } else continue;
@@ -775,7 +777,7 @@
                 if (dist < bestDist) { bestDist = dist; bestPose = lm; }
             }
             // 距离必须合理（< 脸宽的 3 倍）
-            if (bestDist < faceBox.width * 3) return bestPose;
+            if (bestDist < faceBox.width * 5) return bestPose;
             return null;
         }
 
@@ -790,9 +792,10 @@
             const lSh = poseLandmarks[11];
             const rSh = poseLandmarks[12];
 
-            const hasHead = nose && nose.visibility > 0.3;
-            const hasEyes = lEye && rEye && lEye.visibility > 0.2 && rEye.visibility > 0.2;
-            const hasShoulders = lSh && rSh && lSh.visibility > 0.3 && rSh.visibility > 0.3;
+            const vis = (kp, th) => kp && (kp.visibility === undefined || kp.visibility > th);
+            const hasHead = vis(nose, 0.1);
+            const hasEyes = vis(lEye, 0.05) && vis(rEye, 0.05);
+            const hasShoulders = vis(lSh, 0.1) && vis(rSh, 0.1);
 
             if (!hasHead) {
                 if (hasShoulders) return { state: 'sleep', label: '疑似睡觉', detail: '有身体但无头部' };
@@ -807,8 +810,8 @@
             const eyeMidY = hasEyes ? (lEye.y + rEye.y) / 2 : noseY;
 
             // 头部在肩上方 → 抬头；鼻子接近/低于肩线 → 看桌面
-            const headAboveShoulders = eyeMidY < midShY - 0.05;
-            const noseNearShoulder = noseY > midShY - 0.03;
+            const headAboveShoulders = eyeMidY < midShY - 0.03;
+            const noseNearShoulder = noseY > midShY - 0.02;
 
             if (headAboveShoulders && !noseNearShoulder) {
                 return { state: 'up', label: '抬头', detail: `眼高于肩${((midShY-eyeMidY)*100).toFixed(0)}%` };
@@ -816,7 +819,8 @@
             if (noseNearShoulder) {
                 return { state: 'down', label: '看桌面', detail: `鼻近肩线` };
             }
-            return { state: 'unknown', label: '无法判断', detail: '姿态模糊' };
+            const rel = noseY > midShY ? '低于' : '高于';
+            return { state: 'unknown', label: '无法判断', detail: `鼻${rel}肩${Math.abs(noseY-midShY).toFixed(3)}` };
         }
 
         // ========== 学习状态判断 ==========
@@ -1197,9 +1201,21 @@
             const poses = await detectPoses(fc);
             const canvasW = fc.width, canvasH = fc.height;
 
+            // 诊断：每秒打印 Pose 数量 + 关键点可见性
+            if (now - debugLastLog >= 1000) {
+                console.log(`🦴 Pose检测: 检测到 ${poses.length} 人`);
+                poses.forEach((lm, i) => {
+                    const n = lm[0], ls = lm[11], rs = lm[12];
+                    console.log(`  Pose${i}: 鼻(${n?.visibility?.toFixed(2)||'?'} ${n?.x?.toFixed(2)},${n?.y?.toFixed(2)}) 左肩(${ls?.visibility?.toFixed(2)||'?'}) 右肩(${rs?.visibility?.toFixed(2)||'?'})`);
+                });
+            }
+
             for (const face of displayFaces) {
                 // 匹配最近的人体姿态
                 const matchedPose = matchFaceToPose(face.box, poses, canvasW, canvasH);
+                if (now - debugLastLog >= 1000 && displayFaces.indexOf(face) === 0) {
+                    console.log(`  🔗 匹配: ${matchedPose ? '✅' : '❌'} faceBox=(${Math.round(face.box.originX)},${Math.round(face.box.originY)} ${Math.round(face.box.width)}×${Math.round(face.box.height)}) poses=${poses.length}`);
+                }
                 if (matchedPose) {
                     face.poseLandmarks = matchedPose;
                     face.poseState = derivePoseState(matchedPose, canvasW, canvasH);
