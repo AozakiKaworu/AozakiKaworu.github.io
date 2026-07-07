@@ -783,6 +783,41 @@
             return null;
         }
 
+        // ========== 学习状态判断 ==========
+        function updateTrackStudyState(track, candidateState) {
+            const now = Date.now();
+            const stableMs = {
+                '抬头': 1000,
+                '看桌面': 1500,
+                '疑似睡觉': 5000,
+                '无法判断': 1000
+            };
+
+            if (!track.studyStateCandidate || track.studyStateCandidate !== candidateState) {
+                track.studyStateCandidate = candidateState;
+                track.studyStateSince = now;
+                track.studyState = track.studyState || '无法判断'; // 保持旧状态直到确认
+                return;
+            }
+
+            if (now - track.studyStateSince >= (stableMs[candidateState] || 1000)) {
+                track.studyState = candidateState;
+            }
+        }
+
+        function deriveCandidateState(track) {
+            // 有 headPose → 用姿态判断
+            if (track.headPose) {
+                if (track.headPose.state === 'up' || track.headPose.state === 'normal') return '抬头';
+                if (track.headPose.state === 'down') return '看桌面';
+                if (track.headPose.state === 'side') return '无法判断';
+            }
+            // 可靠人脸但没跑 landmarker → 抬头（人脸清晰）
+            if (track._class === 'reliable') return '抬头';
+            // 远距离 → 无法判断
+            return '无法判断';
+        }
+
         // ========== 人脸跟踪 + 平滑 + 三层过滤 ==========
         function iou(boxA, boxB) {
             const ax1 = boxA.originX, ay1 = boxA.originY;
@@ -848,6 +883,9 @@
                     track._class = v._class;
                     track.confirmed = Math.min(track.confirmed + 1, CONFIRM_FRAMES);
                     track.lost = 0;
+                    // 学习状态：每帧推导候选 + 去抖
+                    const candidate = deriveCandidateState(track);
+                    updateTrackStudyState(track, candidate);
                     updated.push(track);
                 } else {
                     track.lost++;
@@ -867,6 +905,9 @@
                     _class: v._class,
                     confirmed: 1,
                     lost: 0,
+                    studyState: '无法判断',
+                    studyStateCandidate: null,
+                    studyStateSince: Date.now(),
                 });
             }
 
@@ -920,7 +961,30 @@
                 [x, y + h, 1, -1], [x + w, y + h, -1, -1]
             ].forEach(([cx, cy, dx, dy]) => drawCornerSegment(cx, cy, dx, dy));
 
-            // 标签
+            // === 学习状态标签（右上角） ===
+            const stateColors = {
+                '抬头': 'rgba(0, 184, 148, 0.9)',
+                '看桌面': 'rgba(9, 132, 227, 0.9)',
+                '疑似睡觉': 'rgba(253, 126, 20, 0.9)',
+                '无法判断': 'rgba(99, 110, 114, 0.85)'
+            };
+            const stateLabel = track.studyState || '无法判断';
+            const stateColor = stateColors[stateLabel] || stateColors['无法判断'];
+
+            ctx.font = '10px sans-serif';
+            const stateTextW = ctx.measureText(stateLabel).width;
+            const stateH = 13, statePad = 2;
+            const stateX = x + w - stateTextW - statePad * 2;
+            const stateY = y - stateH - 4;
+
+            if (stateY > 0) {
+                ctx.fillStyle = stateColor;
+                ctx.fillRect(stateX, stateY, stateTextW + statePad * 2, stateH + statePad);
+                ctx.fillStyle = '#fff';
+                ctx.fillText(stateLabel, stateX + statePad, stateY + stateH - 2);
+            }
+
+            // 置信度标签
             let label;
             if (isReliable && track.headPose) {
                 label = `${track.headPose.label} ${(score * 100).toFixed(0)}%`;
@@ -1057,7 +1121,7 @@
                     raw.push({
                         box: { originX: box.originX, originY: box.originY, width: box.width, height: box.height },
                         score, keypoints: det.keypoints || null, _class: cls,
-                        confirmed: 0, headPose: null,
+                        confirmed: 0, headPose: null, studyState: '无法判断',
                         _rawBox: `${Math.round(box.width)}×${Math.round(box.height)}`
                     });
                 }
@@ -1105,14 +1169,17 @@
             displayFaces.forEach(t => drawOneDetection(t, displayWidth));
 
             // UI
-            const withPose = displayFaces.filter(f => f.headPose && f.headPose.state !== 'normal');
-            const downCount = withPose.filter(f => f.headPose.state === 'down').length;
-            const upCount = withPose.filter(f => f.headPose.state === 'up').length;
+            const upCount = displayFaces.filter(f => f.studyState === '抬头').length;
+            const deskCount = displayFaces.filter(f => f.studyState === '看桌面').length;
+            const sleepCount = displayFaces.filter(f => f.studyState === '疑似睡觉').length;
+            const unknownCount = displayFaces.filter(f => !f.studyState || f.studyState === '无法判断').length;
             let faceSummary = `检测到: ${displayFaces.length} 人`;
-            if (reliableFaces.length > 0) faceSummary += ` (清晰${reliableFaces.length}`;
-            if (downCount > 0) faceSummary += ` 低头${downCount}`;
-            if (upCount > 0) faceSummary += ` 抬头${upCount}`;
-            if (reliableFaces.length > 0) faceSummary += ')';
+            const parts = [];
+            if (upCount > 0) parts.push(`抬头${upCount}`);
+            if (deskCount > 0) parts.push(`看桌面${deskCount}`);
+            if (sleepCount > 0) parts.push(`疑似睡觉${sleepCount}`);
+            if (unknownCount > 0) parts.push(`无法判断${unknownCount}`);
+            if (parts.length > 0) faceSummary += ` (${parts.join(' ')})`;
             faceCountEl.textContent = faceSummary;
             updateClassroomStatus(displayFaces.length);
 
