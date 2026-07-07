@@ -83,7 +83,7 @@
         .container {
             position: relative;
             width: 100%;
-            max-width: 720px;
+            max-width: 960px;
             border-radius: 16px;
             overflow: hidden;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
@@ -91,6 +91,8 @@
         }
 
         #video {
+            position: relative;
+            z-index: 1;
             width: 100%;
             display: block;
         }
@@ -105,6 +107,8 @@
             left: 0;
             width: 100%;
             height: 100%;
+            z-index: 2;
+            pointer-events: none;
         }
 
         #canvas.mirrored {
@@ -270,7 +274,7 @@
     <script>
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         const statusEl = document.getElementById('status');
         const faceCountEl = document.getElementById('faceCount');
         const fpsEl = document.getElementById('fps');
@@ -412,8 +416,8 @@
 
             const constraints = {
                 video: {
-                    width: { ideal: 720 },
-                    height: { ideal: 560 }
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
                 }
             };
 
@@ -452,12 +456,20 @@
 
         // ---------- 加载人脸检测模型 ----------
         async function loadModels() {
-            console.log('开始加载模型: ' + MODEL_URL);
-            await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+            console.log('🔧 初始化 TensorFlow 后端...');
+            await faceapi.tf.setBackend('webgl');
+            await faceapi.tf.ready();
+            console.log('✅ TensorFlow 后端:', faceapi.tf.getBackend());
+
+            console.log('📦 开始加载模型: ' + MODEL_URL);
+            await faceapi.nets.tinyFaceDetector.load(MODEL_URL);
             console.log('✅ 模型加载成功');
         }
 
         // ---------- 检测并绘制 ----------
+        // 调试：每秒打印一次检测结果
+        let debugLastLog = 0;
+
         async function detectAndDraw() {
             if (video.paused || video.ended) {
                 requestAnimationFrame(detectAndDraw);
@@ -466,16 +478,24 @@
 
             const displayWidth = video.videoWidth;
             const displayHeight = video.videoHeight;
+
+            // video 尺寸为 0 时跳过本轮，下一帧继续
+            if (!displayWidth || !displayHeight) {
+                requestAnimationFrame(detectAndDraw);
+                return;
+            }
+
             if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
                 canvas.width = displayWidth;
                 canvas.height = displayHeight;
+                console.log(`📐 canvas 尺寸更新: ${displayWidth}×${displayHeight}`);
             }
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
             const options = new faceapi.TinyFaceDetectorOptions({
-                inputSize: 320,
-                scoreThreshold: 0.5
+                inputSize: 416,
+                scoreThreshold: 0.3
             });
 
             let detections = [];
@@ -486,8 +506,19 @@
                 console.error('人脸检测出错:', e.message || e);
             }
 
+            // 每秒打印一次调试信息
+            const now = performance.now();
+            if (now - debugLastLog >= 1000) {
+                console.log(`🔍 检测到人脸数量: ${detections.length}`);
+                detections.forEach((det, i) => {
+                    console.log(`  人脸 ${i + 1}: 置信度 ${(det.score * 100).toFixed(1)}%, 位置 (${Math.round(det.box.x)}, ${Math.round(det.box.y)}), 大小 ${Math.round(det.box.width)}×${Math.round(det.box.height)}`);
+                });
+                debugLastLog = now;
+            }
+
             detections.forEach(det => {
                 const { x, y, width, height } = det.box;
+                const score = det.score;
 
                 // 红色发光边框
                 ctx.strokeStyle = '#ff1744';
@@ -514,13 +545,29 @@
                     ctx.lineTo(cx + dx * cornerLen, cy);
                     ctx.stroke();
                 });
+
+                // 置信度标签
+                const label = `Face ${(score * 100).toFixed(0)}%`;
+                const labelY = y - 8;
+                const textMetrics = ctx.measureText(label);
+                const textWidth = textMetrics.width;
+                const textHeight = 20;
+                const padding = 4;
+
+                // 标签背景
+                ctx.fillStyle = 'rgba(255, 23, 68, 0.85)';
+                ctx.fillRect(x, labelY - textHeight, textWidth + padding * 2, textHeight + padding);
+
+                // 标签文字
+                ctx.fillStyle = '#fff';
+                ctx.font = `${Math.max(12, displayWidth / 60)}px -apple-system, BlinkMacSystemFont, sans-serif`;
+                ctx.fillText(label, x + padding, labelY - 4);
             });
 
             faceCountEl.textContent = `检测到: ${detections.length} 人`;
             updateClassroomStatus(detections.length);
 
             frameCount++;
-            const now = performance.now();
             if (now - lastTime >= 1000) {
                 fps = Math.round(frameCount / ((now - lastTime) / 1000));
                 frameCount = 0;
