@@ -1,7 +1,7 @@
 """
 课堂状态检测后端
 - 输入: 本机摄像头 或 RTSP 监控流 (STREAM_URL 环境变量)
-- 检测: YuNet 人脸检测 (当前版本仅人脸，大教室场景需升级 YOLO)
+- 检测: YOLO 姿态/人体检测，YuNet 人脸检测兜底
 - 输出: MJPEG 视频流 + JSON 状态 API
 """
 import cv2
@@ -20,24 +20,46 @@ STREAM_URL = os.getenv("STREAM_URL", "").strip()
 CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", "0"))
 MODEL_DIR = os.path.expanduser("~/.cache/opencv")
 yunet_path = os.path.join(MODEL_DIR, "face_detection_yunet_2023mar.onnx")
-DETECT_EVERY_N = 4
+DETECTOR = os.getenv("DETECTOR", "yolo").strip().lower()
+YOLO_MODEL = os.getenv("YOLO_MODEL", "yolov8n-pose.pt").strip()
+YOLO_CONF = float(os.getenv("YOLO_CONF", "0.28"))
+YOLO_IMGSZ = int(os.getenv("YOLO_IMGSZ", "960"))
+KEYPOINT_CONF = float(os.getenv("KEYPOINT_CONF", "0.25"))
+DETECT_EVERY_N = int(os.getenv("DETECT_EVERY_N", "5"))
 MAX_RECONNECT_DELAY = 5
 DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720
 
 # ========== 检测模型加载 ==========
+detector_name = "none"
+yolo_model = None
+if DETECTOR in ("yolo", "auto"):
+    try:
+        from ultralytics import YOLO
+        yolo_model = YOLO(YOLO_MODEL)
+        detector_name = f"yolo:{YOLO_MODEL}"
+        print(f"✅ YOLO 模型已加载: {YOLO_MODEL}")
+    except Exception as e:
+        print(f"⚠️ YOLO 模型加载失败: {e}")
+        print("⚠️ 请运行: pip install -r requirements.txt")
+
 face_detector = None
-if os.path.exists(yunet_path):
-    face_detector = cv2.FaceDetectorYN_create(
-        yunet_path, "", (640, 480),
-        score_threshold=0.5, nms_threshold=0.3, top_k=5000
-    )
-    print(f"✅ YuNet 人脸检测模型已加载")
-else:
-    print("⚠️ YuNet 模型未找到，人脸检测不可用")
+if yolo_model is None:
+    try:
+        if os.path.exists(yunet_path):
+            face_detector = cv2.FaceDetectorYN_create(
+                yunet_path, "", (640, 480),
+                score_threshold=0.5, nms_threshold=0.3, top_k=5000
+            )
+            detector_name = "yunet"
+            print("✅ YuNet 人脸检测模型已加载")
+        else:
+            print("⚠️ YuNet 模型未找到，人脸检测不可用")
+    except Exception as e:
+        print(f"⚠️ YuNet 模型加载失败: {e}")
 
 print(f"📡 STREAM_URL: {STREAM_URL if STREAM_URL else '(本机摄像头)'}")
-print("⚠️ 当前版本仅人脸检测，大教室场景需升级为 YOLO/人体检测")
+print(f"🔍 DETECTOR: {detector_name}")
 
 # ========== 全局状态 ==========
 state_lock = threading.Lock()
@@ -104,9 +126,115 @@ def publish_placeholder(message, width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT):
             "people": []
         }
 
+
+def clamp01(value):
+    return max(0.0, min(1.0, float(value)))
+
+
+def normalize_box(x1, y1, x2, y2, width, height):
+    x1 = max(0.0, min(float(width), float(x1)))
+    y1 = max(0.0, min(float(height), float(y1)))
+    x2 = max(0.0, min(float(width), float(x2)))
+    y2 = max(0.0, min(float(height), float(y2)))
+    if x2 < x1:
+        x1, x2 = x2, x1
+    if y2 < y1:
+        y1, y2 = y2, y1
+    return {
+        "x": round(clamp01(x1 / width), 3),
+        "y": round(clamp01(y1 / height), 3),
+        "width": round(clamp01((x2 - x1) / width), 3),
+        "height": round(clamp01((y2 - y1) / height), 3),
+    }
+
+
+def classify_pose(keypoints, box_height):
+    if keypoints is None or len(keypoints) < 7:
+        return "unknown", 0.45
+
+    def visible(index):
+        point = keypoints[index]
+        score = float(point[2]) if len(point) > 2 else 1.0
+        return score >= KEYPOINT_CONF
+
+    face_indices = [0, 1, 2, 3, 4]  # nose, eyes, ears
+    shoulder_indices = [5, 6]
+    face_points = [keypoints[i] for i in face_indices if visible(i)]
+    shoulder_points = [keypoints[i] for i in shoulder_indices if visible(i)]
+
+    if not face_points and shoulder_points:
+        return "sleep_like", 0.62
+    if not face_points:
+        return "unknown", 0.45
+    if not shoulder_points:
+        return "head_up", 0.72
+
+    face_y = sum(float(p[1]) for p in face_points) / len(face_points)
+    shoulder_y = sum(float(p[1]) for p in shoulder_points) / len(shoulder_points)
+    head_gap = (shoulder_y - face_y) / max(float(box_height), 1.0)
+
+    if head_gap >= 0.16:
+        return "head_up", 0.78
+    if head_gap >= 0.08:
+        return "desk", 0.66
+    return "sleep_like", 0.62
+
+
 # ========== 检测 ==========
 def detect(frame, w, h):
     """返回 people 列表，每个包含 personId/state/confidence/box"""
+    if yolo_model is not None:
+        return detect_yolo(frame, w, h)
+    return detect_yunet(frame, w, h)
+
+
+def detect_yolo(frame, w, h):
+    people = []
+    results = yolo_model.predict(
+        frame,
+        imgsz=YOLO_IMGSZ,
+        conf=YOLO_CONF,
+        classes=[0],
+        verbose=False,
+    )
+    if not results:
+        return people
+
+    result = results[0]
+    if result.boxes is None or len(result.boxes) == 0:
+        return people
+
+    boxes = result.boxes.xyxy.cpu().numpy()
+    confidences = result.boxes.conf.cpu().numpy()
+    keypoints = None
+    if getattr(result, "keypoints", None) is not None and result.keypoints is not None:
+        try:
+            keypoints = result.keypoints.data.cpu().numpy()
+        except Exception:
+            keypoints = None
+
+    order = sorted(range(len(boxes)), key=lambda i: (boxes[i][1], boxes[i][0]))
+    for pid, index in enumerate(order, start=1):
+        x1, y1, x2, y2 = boxes[index]
+        person_conf = float(confidences[index])
+        person_keypoints = keypoints[index] if keypoints is not None and index < len(keypoints) else None
+        state, state_conf = classify_pose(person_keypoints, y2 - y1)
+        confidence = round(max(0.0, min(1.0, person_conf * state_conf)), 2)
+
+        people.append({
+            "personId": f"person-{pid}",
+            "state": state,
+            "confidence": confidence,
+            "visible": True,
+            "durationSeconds": 1,
+            "box": normalize_box(x1, y1, x2, y2, w, h)
+        })
+
+    return people
+
+
+def detect_yunet(frame, w, h):
+    """YuNet 兜底：只能检测正脸，不适合作为大教室最终方案。"""
     people = []
     pid = 0
 
@@ -139,20 +267,13 @@ def detect(frame, w, h):
         else:
             state = "unknown"
 
-        # clamp box 到 0-1
-        bx = max(0.0, min(1.0, fx / w))
-        by = max(0.0, min(1.0, fy / h))
-        bw = max(0.0, min(1.0, fw / w))
-        bh = max(0.0, min(1.0, fh / h))
-
         people.append({
             "personId": f"person-{pid}",
             "state": state,
             "confidence": round(conf, 2),
             "visible": True,
             "durationSeconds": 1,
-            "box": {"x": round(bx, 3), "y": round(by, 3),
-                    "width": round(bw, 3), "height": round(bh, 3)}
+            "box": normalize_box(fx, fy, fx + fw, fy + fh, w, h)
         })
     return people
 
@@ -320,7 +441,11 @@ def api_health():
         "ok": connection_ok,
         "source": STREAM_URL if STREAM_URL else "local-camera",
         "connected": connection_ok,
-        "fps": s["frameInfo"]["fps"]
+        "fps": s["frameInfo"]["fps"],
+        "detector": detector_name,
+        "yoloModel": YOLO_MODEL if yolo_model is not None else None,
+        "detectEveryN": DETECT_EVERY_N,
+        "imgsz": YOLO_IMGSZ if yolo_model is not None else None
     })
 
 
@@ -330,7 +455,9 @@ if __name__ == '__main__':
     print("🎓 课堂状态检测后端")
     print("=" * 55)
     print(f"📡 视频源: {STREAM_URL if STREAM_URL else '本机摄像头'}")
-    print(f"🔍 检测: YuNet 人脸 (⚠️ 仅人脸，大教室需 YOLO)")
+    print(f"🔍 检测: {detector_name}")
+    if yolo_model is None:
+        print("⚠️ 未启用 YOLO。请运行 pip install -r requirements.txt 后重启。")
     print(f"🌐 地址: http://localhost:5001/")
     print(f"📋 状态: http://localhost:5001/api/status")
     print(f"💚 健康: http://localhost:5001/api/health")
