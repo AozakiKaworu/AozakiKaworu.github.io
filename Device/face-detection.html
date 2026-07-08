@@ -63,6 +63,31 @@
             border-color: #e94560;
         }
 
+        .stream-input {
+            width: min(52vw, 420px);
+            min-width: 260px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            background: #10182d;
+            color: #e0e0e0;
+            font-size: 0.85rem;
+            outline: none;
+        }
+
+        .stream-input:focus {
+            border-color: #74b9ff;
+        }
+
+        .source-status {
+            padding: 5px 10px;
+            border-radius: 8px;
+            background: rgba(116, 185, 255, 0.14);
+            color: #74b9ff;
+            font-size: 0.78rem;
+            white-space: nowrap;
+        }
+
         .mirror-toggle {
             display: flex;
             align-items: center;
@@ -93,6 +118,12 @@
 
         .mode-toggle:hover {
             border-color: #74b9ff;
+        }
+
+        .mode-toggle.primary {
+            background: #e94560;
+            color: #fff;
+            border-color: #e94560;
         }
 
         .mode-toggle.classroom {
@@ -339,11 +370,24 @@
         <select id="cameraSelect">
             <option value="">正在枚举设备...</option>
         </select>
+        <button class="mode-toggle" id="startCameraBtn" title="使用选中的本机摄像头">📷 使用摄像头</button>
         <button class="mode-toggle" id="modeToggleBtn" title="切换大教室分块检测模式">🏫 普通模式</button>
         <label class="mirror-toggle">
             <input type="checkbox" id="showBoxCheckbox" checked>
             👁 显示检测框
         </label>
+        <span class="source-status" id="sourceStatus">输入源：摄像头</span>
+    </div>
+
+    <div class="controls">
+        <label for="streamUrlInput">🌐 网络流：</label>
+        <input
+            class="stream-input"
+            id="streamUrlInput"
+            type="url"
+            placeholder="填 HLS/HTTP 地址，例如 /Device/stream/stream.m3u8"
+        >
+        <button class="mode-toggle primary" id="startStreamBtn" title="打开网络视频流">▶ 打开网络流</button>
     </div>
 
     <div class="container">
@@ -403,6 +447,7 @@
     <!-- MediaPipe Tasks Vision -->
     <script type="module">
         import { FaceDetector, FaceLandmarker, PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
+        import Hls from "https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.mjs";
 
         // ========== DOM 元素 ==========
         const video = document.getElementById('video');
@@ -421,6 +466,10 @@
         const debugEngine = document.getElementById('debugEngine');
         const modeToggleBtn = document.getElementById('modeToggleBtn');
         const showBoxCheckbox = document.getElementById('showBoxCheckbox');
+        const startCameraBtn = document.getElementById('startCameraBtn');
+        const streamUrlInput = document.getElementById('streamUrlInput');
+        const startStreamBtn = document.getElementById('startStreamBtn');
+        const sourceStatus = document.getElementById('sourceStatus');
         const stateSummaryEl = document.getElementById('stateSummary');
         const personStatsBody = document.getElementById('personStatsBody');
 
@@ -435,6 +484,8 @@
         let faceLandmarker = null;
         let poseLandmarker = null;
         let currentStream = null;
+        let currentHls = null;
+        let currentInputSource = 'camera';
         let lastTime = performance.now();
         let frameCount = 0;
         let fps = 0;
@@ -452,18 +503,31 @@
         // 检测模式：'normal' | 'classroom'
         // ---- 检测模式 ----
         let detectionMode = 'normal';
-        const GRID_COLS = 3;
-        const GRID_ROWS = 2;
-        const DETECT_INTERVAL_MS = 250;
+        const GRID_COLS = 4;
+        const GRID_ROWS = 3;
+        const DETECT_INTERVAL_MS = 700;
+        const GRID_OVERLAP_RATIO = 0.18;
+        const GRID_FACE_SCALE = 1.65;
+        const GRID_POSE_SCALE = 1.45;
+        const GRID_MAX_TILE_SIDE = 960;
+        const GRID_TILES_PER_CYCLE = 3;
+        const GRID_RESULT_TTL_MS = 2500;
+        const POSE_DETECT_INTERVAL_MS = 1600;
         let lastDetectTime = 0;
         let lastDetections = [];
         let lastDetectionsTimestamp = 0;
-        const CACHE_MAX_AGE_MS = 300; // 缓存最大 300ms
+        let rollingGridDetections = [];
+        let gridTileCursor = 0;
+        let gridCycleCount = 0;
+        let lastPoseDetectTime = 0;
+        let lastPoses = [];
+        let lastPosesTimestamp = 0;
+        const CACHE_MAX_AGE_MS = 2600; // 分块轮询时保留最近几轮结果
 
         // 尺寸阈值（按模式）
         function getFaceThresholds() {
             if (detectionMode === 'classroom') {
-                return { minW: 30, minH: 30, reliableW: 90, reliableH: 90, minConf: 0.30 };
+                return { minW: 16, minH: 16, reliableW: 64, reliableH: 64, minConf: 0.18 };
             }
             return { minW: 45, minH: 45, reliableW: 90, reliableH: 90, minConf: 0.45 };
         }
@@ -479,6 +543,8 @@
         let nextFaceId = 0;
         let showDetectionBox = true; // 显示检测框开关
         let latestStatusPayload = null;
+        const DEVICE_ID = 'camera-01';
+        const CLASS_ID = 1;
         const BACKEND_STATUS_ENDPOINT = ''; // 后端接口准备位，例如: http://localhost:8000/api/classroom/status
         const BACKEND_POST_INTERVAL_MS = 1000;
         let lastBackendPostAt = 0;
@@ -558,6 +624,121 @@
             permissionHelp.classList.add('visible');
         }
 
+        function resetDetectionState() {
+            lastDetections = [];
+            lastDetectionsTimestamp = 0;
+            lastDetectTime = 0;
+            rollingGridDetections = [];
+            gridTileCursor = 0;
+            gridCycleCount = 0;
+            lastPoses = [];
+            lastPosesTimestamp = 0;
+            lastPoseDetectTime = 0;
+            trackedFaces = [];
+            analyticsTracks = [];
+            nextAnalyticsId = 1;
+            latestAnalyticsSnapshot = null;
+            noFaceSince = null;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function stopCurrentVideoSource() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(t => t.stop());
+                currentStream = null;
+            }
+            if (currentHls) {
+                currentHls.destroy();
+                currentHls = null;
+            }
+            video.pause();
+            video.removeAttribute('src');
+            video.srcObject = null;
+            video.load();
+        }
+
+        function waitForVideoReady() {
+            return new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    cleanup();
+                    reject(new Error('视频加载超时'));
+                }, 15000);
+
+                function cleanup() {
+                    clearTimeout(timeout);
+                    video.removeEventListener('loadedmetadata', onReady);
+                    video.removeEventListener('canplay', onReady);
+                    video.removeEventListener('error', onError);
+                }
+
+                function onReady() {
+                    cleanup();
+                    video.play().then(resolve).catch(resolve);
+                }
+
+                function onError() {
+                    cleanup();
+                    reject(new Error('视频源无法播放，请检查地址、格式或跨域设置'));
+                }
+
+                if (video.readyState >= 2 && video.videoWidth > 0) {
+                    onReady();
+                    return;
+                }
+
+                video.addEventListener('loadedmetadata', onReady, { once: true });
+                video.addEventListener('canplay', onReady, { once: true });
+                video.addEventListener('error', onError, { once: true });
+            });
+        }
+
+        function isHlsUrl(url) {
+            return /\.m3u8($|\?)/i.test(url);
+        }
+
+        async function startNetworkStream(url) {
+            const streamUrl = (url || '').trim();
+            if (!streamUrl) throw new Error('请先输入网络视频流地址');
+            if (/^rtsp:\/\//i.test(streamUrl)) {
+                throw new Error('浏览器不能直接播放 RTSP。请先用 FFmpeg/VLC 转成 HLS，例如 /Device/stream/stream.m3u8');
+            }
+
+            stopCurrentVideoSource();
+            resetDetectionState();
+            video.crossOrigin = 'anonymous';
+            video.muted = true;
+            video.playsInline = true;
+
+            if (isHlsUrl(streamUrl) && Hls.isSupported()) {
+                currentHls = new Hls({
+                    lowLatencyMode: true,
+                    liveSyncDurationCount: 2,
+                    maxLiveSyncPlaybackRate: 1.2
+                });
+                currentHls.loadSource(streamUrl);
+                currentHls.attachMedia(video);
+                currentHls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        console.error('HLS 播放错误:', data);
+                        statusEl.textContent = '❌ 网络流播放失败';
+                        statusEl.className = 'status error';
+                    }
+                });
+            } else {
+                video.src = streamUrl;
+            }
+
+            await waitForVideoReady();
+            currentInputSource = 'stream';
+            detectionMode = 'classroom';
+            modeToggleBtn.textContent = '🏫 大教室模式';
+            modeToggleBtn.classList.add('classroom');
+            sourceStatus.textContent = '输入源：网络流';
+            statusEl.textContent = '✅ 网络流检测中';
+            statusEl.className = 'status ready';
+            localStorage.setItem('classroomStreamUrl', streamUrl);
+        }
+
         async function enumerateCameras() {
             try {
                 const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -600,10 +781,9 @@
         }
 
         async function startCamera(deviceId) {
-            if (currentStream) {
-                currentStream.getTracks().forEach(t => t.stop());
-                currentStream = null;
-            }
+            stopCurrentVideoSource();
+            resetDetectionState();
+            video.removeAttribute('crossorigin');
 
             const constraints = {
                 video: {
@@ -617,6 +797,8 @@
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 currentStream = stream;
                 video.srcObject = stream;
+                currentInputSource = 'camera';
+                sourceStatus.textContent = '输入源：摄像头';
                 return new Promise((resolve) => {
                     video.onloadedmetadata = () => {
                         video.play();
@@ -636,7 +818,7 @@
             console.log('✅ WASM 运行时就绪');
 
             let delegate = 'GPU';
-            const detOpts = (d) => ({ baseOptions: { modelAssetPath: MODEL_URL, delegate: d }, runningMode: 'IMAGE', minDetectionConfidence: 0.3 });
+            const detOpts = (d) => ({ baseOptions: { modelAssetPath: MODEL_URL, delegate: d }, runningMode: 'IMAGE', minDetectionConfidence: 0.18 });
             const lmOpts = (d) => ({
                 baseOptions: { modelAssetPath: LANDMARKER_URL, delegate: d },
                 runningMode: 'IMAGE',
@@ -645,7 +827,13 @@
                 minTrackingConfidence: 0.5,
                 outputFacialTransformationMatrixes: true
             });
-            const poseOpts = (d) => ({ baseOptions: { modelAssetPath: POSE_URL, delegate: d }, runningMode: 'IMAGE', numPoses: 5, minPoseDetectionConfidence: 0.3, minTrackingConfidence: 0.3 });
+            const poseOpts = (d) => ({
+                baseOptions: { modelAssetPath: POSE_URL, delegate: d },
+                runningMode: 'IMAGE',
+                numPoses: 20,
+                minPoseDetectionConfidence: 0.18,
+                minTrackingConfidence: 0.18
+            });
 
             try {
                 [faceDetector, faceLandmarker, poseLandmarker] = await Promise.all([
@@ -698,8 +886,80 @@
             }
         }
 
-        // ---- 大教室模式：2×3 网格分块检测 ----
-        async function detectGrid() {
+        function cloneDetectionWithBox(det, box, keypoints, meta = {}) {
+            return {
+                ...det,
+                boundingBox: box,
+                keypoints: keypoints || det.keypoints || null,
+                ...meta
+            };
+        }
+
+        function mapTileDetection(det, srcX, srcY, srcW, srcH, scale, row, col) {
+            const box = det.boundingBox;
+            const isNormalizedBox = box.width <= 1 && box.height <= 1;
+            const mappedBox = isNormalizedBox
+                ? {
+                    originX: srcX + box.originX * srcW,
+                    originY: srcY + box.originY * srcH,
+                    width: box.width * srcW,
+                    height: box.height * srcH
+                }
+                : {
+                    originX: srcX + box.originX / scale,
+                    originY: srcY + box.originY / scale,
+                    width: box.width / scale,
+                    height: box.height / scale
+                };
+
+            const mappedKeypoints = det.keypoints ? det.keypoints.map(kp => {
+                if (kp.x <= 1 && kp.y <= 1) {
+                    return { ...kp, x: srcX + kp.x * srcW, y: srcY + kp.y * srcH };
+                }
+                return { ...kp, x: srcX + kp.x / scale, y: srcY + kp.y / scale };
+            }) : null;
+
+            return cloneDetectionWithBox(det, mappedBox, mappedKeypoints, {
+                _gridRow: row,
+                _gridCol: col,
+                _tileScale: scale,
+                _source: 'tile'
+            });
+        }
+
+        function getGridTiles(fullW, fullH) {
+            const baseTileW = fullW / GRID_COLS;
+            const baseTileH = fullH / GRID_ROWS;
+            const overlapX = baseTileW * GRID_OVERLAP_RATIO;
+            const overlapY = baseTileH * GRID_OVERLAP_RATIO;
+            const tiles = [];
+
+            for (let row = 0; row < GRID_ROWS; row++) {
+                for (let col = 0; col < GRID_COLS; col++) {
+                    const rawX = col * baseTileW - overlapX;
+                    const rawY = row * baseTileH - overlapY;
+                    const rawW = baseTileW + overlapX * 2;
+                    const rawH = baseTileH + overlapY * 2;
+                    const srcX = Math.max(0, Math.floor(rawX));
+                    const srcY = Math.max(0, Math.floor(rawY));
+                    const srcRight = Math.min(fullW, Math.ceil(rawX + rawW));
+                    const srcBottom = Math.min(fullH, Math.ceil(rawY + rawH));
+                    tiles.push({
+                        row,
+                        col,
+                        srcX,
+                        srcY,
+                        srcW: Math.max(1, srcRight - srcX),
+                        srcH: Math.max(1, srcBottom - srcY)
+                    });
+                }
+            }
+
+            return tiles;
+        }
+
+        // ---- 大教室模式：全图 + 重叠分块 + 放大检测 ----
+        async function detectGrid(now) {
             const fullW = video.videoWidth;
             const fullH = video.videoHeight;
             if (!fullW || !fullH) return [];
@@ -711,52 +971,104 @@
             fullCanvas.height = fullH;
             fullCtx.drawImage(video, 0, 0);
 
-            const tileW = fullW / GRID_COLS;
-            const tileH = fullH / GRID_ROWS;
             const allDetections = [];
+            const tiles = getGridTiles(fullW, fullH);
 
-            // 2) 逐块检测
-            for (let row = 0; row < GRID_ROWS; row++) {
-                for (let col = 0; col < GRID_COLS; col++) {
-                    const srcX = Math.floor(col * tileW);
-                    const srcY = Math.floor(row * tileH);
-                    const srcW = Math.ceil(tileW);
-                    const srcH = Math.ceil(tileH);
+            // 全图检测低频跑，补近处/大脸；分块检测轮询跑，避免一次处理 12 个 tile 卡崩。
+            if (gridCycleCount % 4 === 0) {
+                const fullResult = await detectOnCanvas(fullCanvas);
+                if (fullResult.detections) {
+                    fullResult.detections.forEach(det => {
+                        allDetections.push(cloneDetectionWithBox(det, { ...det.boundingBox }, det.keypoints, { _source: 'full', _seenAt: now }));
+                    });
+                }
+            }
 
-                    const tileCanvas = document.createElement('canvas');
-                    tileCanvas.width = srcW;
-                    tileCanvas.height = srcH;
-                    const tileCtx = tileCanvas.getContext('2d', { willReadFrequently: true });
-                    tileCtx.drawImage(fullCanvas, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH);
+            const tilesThisCycle = [];
+            for (let i = 0; i < Math.min(GRID_TILES_PER_CYCLE, tiles.length); i++) {
+                tilesThisCycle.push(tiles[(gridTileCursor + i) % tiles.length]);
+            }
+            gridTileCursor = (gridTileCursor + GRID_TILES_PER_CYCLE) % tiles.length;
+            gridCycleCount++;
 
-                    const result = await detectOnCanvas(tileCanvas);
-                    if (result.detections) {
-                        for (const det of result.detections) {
-                            // 坐标映射回原始画面
-                            det.boundingBox.originX += srcX;
-                            det.boundingBox.originY += srcY;
-                            if (det.keypoints) {
-                                for (const kp of det.keypoints) {
-                                    if (kp.x <= 1 && kp.y <= 1) {
-                                        kp.x = kp.x * srcW + srcX;
-                                        kp.y = kp.y * srcH + srcY;
-                                    } else {
-                                        kp.x += srcX;
-                                        kp.y += srcY;
-                                    }
-                                }
-                            }
-                            det._gridRow = row;
-                            det._gridCol = col;
-                            allDetections.push(det);
-                        }
+            // 2) 逐步分块放大检测。小脸会在 tile 内变大，远景监控更容易检出。
+            for (const tile of tilesThisCycle) {
+                const scale = Math.min(GRID_FACE_SCALE, GRID_MAX_TILE_SIDE / Math.max(tile.srcW, tile.srcH));
+                const scaledW = Math.max(1, Math.round(tile.srcW * scale));
+                const scaledH = Math.max(1, Math.round(tile.srcH * scale));
+                const tileCanvas = document.createElement('canvas');
+                tileCanvas.width = scaledW;
+                tileCanvas.height = scaledH;
+                const tileCtx = tileCanvas.getContext('2d', { willReadFrequently: true });
+                tileCtx.imageSmoothingEnabled = true;
+                tileCtx.imageSmoothingQuality = 'medium';
+                tileCtx.drawImage(fullCanvas, tile.srcX, tile.srcY, tile.srcW, tile.srcH, 0, 0, scaledW, scaledH);
+
+                const result = await detectOnCanvas(tileCanvas);
+                if (result.detections) {
+                    for (const det of result.detections) {
+                        allDetections.push({
+                            ...mapTileDetection(det, tile.srcX, tile.srcY, tile.srcW, tile.srcH, scale, tile.row, tile.col),
+                            _seenAt: now
+                        });
                     }
                 }
             }
 
-            // 3) 去重：合并高度重叠的框（IoU > 0.5）
+            rollingGridDetections = rollingGridDetections
+                .filter(det => now - (det._seenAt || 0) <= GRID_RESULT_TTL_MS)
+                .concat(allDetections);
+
+            // 3) 去重：合并最近几轮检测结果。这里不限制人数，只清理重复框和过期框。
+            return mergeDetections(rollingGridDetections);
+        }
+
+        /*
+        async function detectGridFullScanForReference() {
+            // 保留原始全量扫描思路供调参参考。大教室人数多时不要每轮调用它，
+            // 否则 12 个放大 tile + Pose 很容易把浏览器打到 FPS=1。
+            const fullW = video.videoWidth;
+            const fullH = video.videoHeight;
+            if (!fullW || !fullH) return [];
+
+            const fullCanvas = document.createElement('canvas');
+            const fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
+            fullCanvas.width = fullW;
+            fullCanvas.height = fullH;
+            fullCtx.drawImage(video, 0, 0);
+
+            const allDetections = [];
+            const fullResult = await detectOnCanvas(fullCanvas);
+            if (fullResult.detections) {
+                fullResult.detections.forEach(det => {
+                    allDetections.push(cloneDetectionWithBox(det, { ...det.boundingBox }, det.keypoints, { _source: 'full' }));
+                });
+            }
+
+            for (const tile of getGridTiles(fullW, fullH)) {
+                const scale = Math.min(GRID_FACE_SCALE, GRID_MAX_TILE_SIDE / Math.max(tile.srcW, tile.srcH));
+                const scaledW = Math.max(1, Math.round(tile.srcW * scale));
+                const scaledH = Math.max(1, Math.round(tile.srcH * scale));
+                const tileCanvas = document.createElement('canvas');
+                tileCanvas.width = scaledW;
+                tileCanvas.height = scaledH;
+                const tileCtx = tileCanvas.getContext('2d', { willReadFrequently: true });
+                tileCtx.imageSmoothingEnabled = true;
+                tileCtx.imageSmoothingQuality = 'high';
+                tileCtx.drawImage(fullCanvas, tile.srcX, tile.srcY, tile.srcW, tile.srcH, 0, 0, scaledW, scaledH);
+
+                const result = await detectOnCanvas(tileCanvas);
+                if (result.detections) {
+                    for (const det of result.detections) {
+                        allDetections.push(mapTileDetection(det, tile.srcX, tile.srcY, tile.srcW, tile.srcH, scale, tile.row, tile.col));
+                    }
+                }
+            }
+
+            // 3) 去重：合并高度重叠的框
             return mergeDetections(allDetections);
         }
+        */
 
         function mergeDetections(detections) {
             if (detections.length <= 1) return detections;
@@ -790,8 +1102,12 @@
                     const interY = Math.max(0, Math.min(ay2, by2) - Math.max(ay1, by1));
                     const interArea = interX * interY;
                     const unionArea = boxA.width * boxA.height + boxB.width * boxB.height - interArea;
+                    const smallerArea = Math.min(boxA.width * boxA.height, boxB.width * boxB.height);
 
-                    if (unionArea > 0 && interArea / unionArea > 0.5) {
+                    const overlap = unionArea > 0 ? interArea / unionArea : 0;
+                    const containment = smallerArea > 0 ? interArea / smallerArea : 0;
+
+                    if (overlap > 0.38 || containment > 0.72) {
                         suppressed.add(j);
                     }
                 }
@@ -925,6 +1241,89 @@
                 const result = poseLandmarker.detect(sourceCanvas);
                 return result.landmarks || []; // Array<NormalizedLandmark[]>, 每人一组33点
             } catch (e) { return []; }
+        }
+
+        function mapTilePose(pose, tile, fullW, fullH) {
+            return pose.map(kp => ({
+                ...kp,
+                x: (tile.srcX + kp.x * tile.srcW) / fullW,
+                y: (tile.srcY + kp.y * tile.srcH) / fullH
+            }));
+        }
+
+        function poseCenter(pose) {
+            const lSh = pose[11], rSh = pose[12], nose = pose[0], lHip = pose[23], rHip = pose[24];
+            const points = [lSh, rSh, nose, lHip, rHip].filter(Boolean);
+            if (points.length === 0) return null;
+            return {
+                x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+                y: points.reduce((sum, p) => sum + p.y, 0) / points.length
+            };
+        }
+
+        function poseScore(pose) {
+            return [0, 2, 5, 11, 12, 23, 24]
+                .map(i => pose[i])
+                .filter(Boolean)
+                .reduce((sum, kp) => sum + (kp.visibility ?? 0.45), 0);
+        }
+
+        function mergePoses(poses, fullW, fullH) {
+            const sorted = poses.slice().sort((a, b) => poseScore(b) - poseScore(a));
+            const merged = [];
+            for (const pose of sorted) {
+                const center = poseCenter(pose);
+                if (!center) continue;
+                const duplicate = merged.some(existing => {
+                    const other = poseCenter(existing);
+                    if (!other) return false;
+                    const dx = (center.x - other.x) * fullW;
+                    const dy = (center.y - other.y) * fullH;
+                    return Math.hypot(dx, dy) < Math.max(28, fullW * 0.025);
+                });
+                if (!duplicate) merged.push(pose);
+            }
+            return merged;
+        }
+
+        async function detectPosesGrid(sourceCanvas) {
+            const fullW = sourceCanvas.width;
+            const fullH = sourceCanvas.height;
+            const poses = [];
+
+            poses.push(...await detectPoses(sourceCanvas));
+
+            for (const tile of getGridTiles(fullW, fullH)) {
+                const scale = Math.min(GRID_POSE_SCALE, GRID_MAX_TILE_SIDE / Math.max(tile.srcW, tile.srcH));
+                const scaledW = Math.max(1, Math.round(tile.srcW * scale));
+                const scaledH = Math.max(1, Math.round(tile.srcH * scale));
+                const tileCanvas = document.createElement('canvas');
+                tileCanvas.width = scaledW;
+                tileCanvas.height = scaledH;
+                const tileCtx = tileCanvas.getContext('2d', { willReadFrequently: true });
+                tileCtx.imageSmoothingEnabled = true;
+                tileCtx.imageSmoothingQuality = 'high';
+                tileCtx.drawImage(sourceCanvas, tile.srcX, tile.srcY, tile.srcW, tile.srcH, 0, 0, scaledW, scaledH);
+
+                const tilePoses = await detectPoses(tileCanvas);
+                tilePoses.forEach(pose => poses.push(mapTilePose(pose, tile, fullW, fullH)));
+            }
+
+            return mergePoses(poses, fullW, fullH);
+        }
+
+        async function getCachedPoses(sourceCanvas, now) {
+            const interval = detectionMode === 'classroom' ? POSE_DETECT_INTERVAL_MS : 300;
+            if (now - lastPoseDetectTime >= interval) {
+                lastPoseDetectTime = now;
+                // 大教室人数多时，Pose 分块检测会非常重。这里保留全图低频 Pose
+                // 作为状态辅助；人数检测仍由 rolling grid face detections 承担。
+                lastPoses = await detectPoses(sourceCanvas);
+                lastPosesTimestamp = now;
+                return lastPoses;
+            }
+            if (now - lastPosesTimestamp <= CACHE_MAX_AGE_MS) return lastPoses;
+            return [];
         }
 
         function matchFaceToPose(faceBox, poses, canvasW, canvasH) {
@@ -1554,7 +1953,7 @@
             }
 
             // 关键点：仅可靠人脸 + w/h ≥ 60px
-            if (isReliable && w >= 60 && h >= 60 && track.keypoints && track.keypoints.length > 0) {
+            if (detectionMode !== 'classroom' && isReliable && w >= 60 && h >= 60 && track.keypoints && track.keypoints.length > 0) {
                 track.keypoints.forEach((kp, idx) => {
                     let kpX = kp.x, kpY = kp.y;
                     if (kpX <= 1 && kpY <= 1 && (kpX > 0 || kpY > 0)) {
@@ -1580,58 +1979,61 @@
             }
         }
 
-        function buildStatusPayload(faces, videoW, videoH) {
-            const people = faces.map((face, index) => ({
-                id: face.analyticsId ? `person-${face.analyticsId}` : String(face.id ?? index),
-                analyticsId: face.analyticsId ? `person-${face.analyticsId}` : null,
-                source: face.source || (face._class === 'pose' ? 'pose-only' : 'face'),
-                state: face.studyState || '无法判断',
-                confidence: Number((face.score ?? 0).toFixed(3)),
-                detectionClass: face._class || 'unknown',
-                box: {
-                    x: Math.round(face.box.originX),
-                    y: Math.round(face.box.originY),
-                    width: Math.round(face.box.width),
-                    height: Math.round(face.box.height)
-                },
-                normalizedBox: {
-                    x: Number((face.box.originX / videoW).toFixed(4)),
-                    y: Number((face.box.originY / videoH).toFixed(4)),
-                    width: Number((face.box.width / videoW).toFixed(4)),
-                    height: Number((face.box.height / videoH).toFixed(4))
-                },
-                pose: face.poseState ? {
-                    source: face.poseState.source,
-                    state: face.poseState.state,
-                    label: face.poseState.label,
-                    detail: face.poseState.detail,
-                    confidence: face.poseState.confidence
-                } : null,
-                headPose: face.headPose ? {
-                    source: face.headPose.source,
-                    state: face.headPose.state,
-                    label: face.headPose.label,
-                    pitch: face.headPose.pitch,
-                    yaw: face.headPose.yaw,
-                    roll: face.headPose.roll,
-                    pitchRatio: face.headPose.pitchRatio,
-                    yawRatio: face.headPose.yawRatio,
-                    confidence: face.headPose.confidence
-                } : null
-            }));
+        function clamp01(value) {
+            return Math.max(0, Math.min(1, value));
+        }
+
+        function mapBackendState(state) {
+            if (state === '抬头') return 'head_up';
+            if (state === '看桌面') return 'desk';
+            if (state === '疑似睡觉') return 'sleep_like';
+            return 'unknown';
+        }
+
+        function buildBackendPerson(face, index, videoW, videoH, windowSeconds) {
+            const state = mapBackendState(face.studyState);
+            const personId = face.analyticsId
+                ? `person-${face.analyticsId}`
+                : `person-${index + 1}`;
 
             return {
-                timestamp: new Date().toISOString(),
-                mode: detectionMode,
-                video: { width: videoW, height: videoH },
+                personId,
+                state,
+                confidence: Number((face.score ?? face.poseState?.confidence ?? 0).toFixed(3)),
+                visible: true,
+                durationSeconds: windowSeconds,
+                box: {
+                    x: Number(clamp01(face.box.originX / videoW).toFixed(4)),
+                    y: Number(clamp01(face.box.originY / videoH).toFixed(4)),
+                    width: Number(clamp01(face.box.width / videoW).toFixed(4)),
+                    height: Number(clamp01(face.box.height / videoH).toFixed(4))
+                }
+            };
+        }
+
+        function buildStatusPayload(faces, videoW, videoH) {
+            const windowSeconds = BACKEND_POST_INTERVAL_MS / 1000;
+            const people = faces.map((face, index) =>
+                buildBackendPerson(face, index, videoW, videoH, windowSeconds)
+            );
+
+            return {
+                deviceId: DEVICE_ID,
+                classId: CLASS_ID,
+                capturedAt: new Date().toISOString(),
+                windowSeconds,
+                frameInfo: {
+                    fps,
+                    width: videoW,
+                    height: videoH
+                },
                 summary: {
                     total: people.length,
-                    up: people.filter(p => p.state === '抬头').length,
-                    desk: people.filter(p => p.state === '看桌面').length,
-                    sleep: people.filter(p => p.state === '疑似睡觉').length,
-                    unknown: people.filter(p => p.state === '无法判断').length
+                    headUp: people.filter(p => p.state === 'head_up').length,
+                    desk: people.filter(p => p.state === 'desk').length,
+                    sleepLike: people.filter(p => p.state === 'sleep_like').length,
+                    unknown: people.filter(p => p.state === 'unknown').length
                 },
-                analytics: latestAnalyticsSnapshot,
                 people
             };
         }
@@ -1675,7 +2077,7 @@
                 console.log(`📐 canvas 尺寸更新: ${displayWidth}×${displayHeight}`);
             }
 
-            debugVideoSize.textContent = `视频: ${displayWidth}×${displayHeight} | ${detectionMode === 'classroom' ? '大教室' : '普通'} | full_range${debugRawDetection ? ' DEBUG' : ''}`;
+            debugVideoSize.textContent = `视频: ${displayWidth}×${displayHeight} | ${detectionMode === 'classroom' ? '大教室4×3轮询' : '普通'} | full_range${debugRawDetection ? ' DEBUG' : ''}`;
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -1687,7 +2089,7 @@
                 if (now - lastDetectTime >= DETECT_INTERVAL_MS) {
                     lastDetectTime = now;
                     try {
-                        detections = await detectGrid();
+                        detections = await detectGrid(now);
                         lastDetections = detections;
                         lastDetectionsTimestamp = now;
                     } catch (e) {
@@ -1744,7 +2146,7 @@
             // === Pose Landmarker：全帧一次 → 匹配到各人脸/人体 ===
             const fc = document.createElement('canvas');
             videoToCanvas(fc);
-            const poses = await detectPoses(fc);
+            const poses = await getCachedPoses(fc, now);
             const canvasW = fc.width, canvasH = fc.height;
             const usedPoseIndexes = new Set();
 
@@ -1886,7 +2288,7 @@
                 lastDetections = [];
                 lastDetectTime = 0;
                 trackedFaces = [];
-                console.log('🔀 大教室模式（3×2分块 | ≥30px | 置信度≥0.30 | full_range）');
+                console.log('🔀 大教室模式（4×3重叠分块轮询 | 每轮3块 | 保留2.5秒结果 | ≥16px | 置信度≥0.18）');
             } else {
                 detectionMode = 'normal';
                 modeToggleBtn.textContent = '🏫 普通模式';
@@ -1898,7 +2300,20 @@
         });
 
         // ========== 事件监听 ==========
+        startCameraBtn.addEventListener('click', async () => {
+            statusEl.textContent = '⏳ 切换到摄像头...';
+            statusEl.className = 'status loading';
+            try {
+                await startCamera(cameraSelect.value);
+                statusEl.textContent = '✅ 检测中';
+                statusEl.className = 'status ready';
+            } catch (e) {
+                console.error('切换摄像头失败:', e);
+            }
+        });
+
         cameraSelect.addEventListener('change', async () => {
+            if (currentInputSource !== 'camera') return;
             statusEl.textContent = '⏳ 切换摄像头...';
             statusEl.className = 'status loading';
             try {
@@ -1906,6 +2321,23 @@
                 statusEl.textContent = '✅ 检测中';
                 statusEl.className = 'status ready';
             } catch (e) { /* 已在 startCamera 处理 */ }
+        });
+
+        startStreamBtn.addEventListener('click', async () => {
+            statusEl.textContent = '⏳ 打开网络视频流...';
+            statusEl.className = 'status loading';
+            try {
+                await startNetworkStream(streamUrlInput.value);
+                permissionHelp.classList.remove('visible');
+                if (!detectLoopStarted) {
+                    detectLoopStarted = true;
+                    detectAndDraw();
+                }
+            } catch (err) {
+                console.error('打开网络流失败:', err);
+                statusEl.textContent = '❌ ' + (err.message || '网络流打开失败');
+                statusEl.className = 'status error';
+            }
         });
 
         showBoxCheckbox.addEventListener('change', () => {
@@ -1934,8 +2366,15 @@
         // ========== 主流程 ==========
         (async function main() {
             try {
+                const params = new URLSearchParams(window.location.search);
+                const streamFromUrl = params.get('stream') || params.get('video');
+                const savedStreamUrl = localStorage.getItem('classroomStreamUrl');
+                if (streamFromUrl || savedStreamUrl) {
+                    streamUrlInput.value = streamFromUrl || savedStreamUrl;
+                }
+
                 const cameras = await enumerateCameras();
-                if (cameras.length === 0) {
+                if (cameras.length === 0 && !streamUrlInput.value) {
                     statusEl.textContent = '⚠️ 未检测到摄像头设备';
                     statusEl.className = 'status error';
                     return;
@@ -1943,10 +2382,20 @@
 
                 const selectedId = cameraSelect.value;
                 statusEl.textContent = '⏳ 下载AI模型中...';
-                await Promise.all([loadModels(), startCamera(selectedId)]);
+                await loadModels();
+
+                if (streamFromUrl) {
+                    statusEl.textContent = '⏳ 打开网络视频流...';
+                    await startNetworkStream(streamFromUrl);
+                } else if (cameras.length > 0) {
+                    await startCamera(selectedId);
+                } else if (streamUrlInput.value) {
+                    statusEl.textContent = '⏳ 打开网络视频流...';
+                    await startNetworkStream(streamUrlInput.value);
+                }
 
                 permissionHelp.classList.remove('visible');
-                statusEl.textContent = '✅ 检测中';
+                statusEl.textContent = currentInputSource === 'stream' ? '✅ 网络流检测中' : '✅ 检测中';
                 statusEl.className = 'status ready';
 
                 if (!detectLoopStarted) {
