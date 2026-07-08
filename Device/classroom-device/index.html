@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>课堂状态检测设备端</title>
+    <link rel="stylesheet" href="./classroom-device.css">
+</head>
+<body>
+    <h1>🔴 实时人脸检测</h1>
+    <p class="subtitle">请允许浏览器访问摄像头</p>
+
+    <!-- 摄像头选择 + 镜像开关 -->
+    <div class="controls">
+        <label for="cameraSelect">📷 摄像头：</label>
+        <select id="cameraSelect">
+            <option value="">正在枚举设备...</option>
+        </select>
+        <button class="mode-toggle" id="modeToggleBtn" title="切换大教室分块检测模式">🏫 普通模式</button>
+        <label class="mirror-toggle">
+            <input type="checkbox" id="showBoxCheckbox" checked>
+            👁 显示检测框
+        </label>
+    </div>
+
+    <div class="container">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <div class="info-bar">
+        <span class="status loading" id="status">⏳ 加载模型中...</span>
+        <span class="face-count" id="faceCount">检测到: 0 人</span>
+        <span class="classroom-status away" id="classroomStatus">课堂状态：离开</span>
+        <span class="state-duration" id="stateDuration">持续：--</span>
+        <span class="fps" id="fps">FPS: --</span>
+    </div>
+
+    <!-- 调试信息 -->
+    <div class="debug-info" id="debugInfo">
+        <span id="debugVideoSize">视频: --</span>
+        <span id="debugLastScore">最后置信度: --</span>
+        <span id="debugEngine">引擎: MediaPipe</span>
+    </div>
+
+    <div class="analytics-panel" id="analyticsPanel">
+        <div class="analytics-header">
+            <div class="analytics-title">状态统计</div>
+            <div class="analytics-summary" id="stateSummary">
+                <span class="analytics-chip">当前：0 人</span>
+                <span class="analytics-chip">累计：0 人</span>
+            </div>
+        </div>
+        <table class="analytics-table">
+            <thead>
+                <tr>
+                    <th>人员</th>
+                    <th>当前状态</th>
+                    <th>抬头</th>
+                    <th>看桌面</th>
+                    <th>疑似睡觉</th>
+                    <th>无法判断</th>
+                    <th>可见总时长</th>
+                </tr>
+            </thead>
+            <tbody id="personStatsBody">
+                <tr><td colspan="7" class="muted">等待检测数据...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="permission-help" id="permissionHelp">
+        摄像头权限被浏览器拒绝了。请点击地址栏左侧的网站权限图标，把摄像头改为“允许”，然后刷新页面或点击下面按钮。
+        <br>
+        如果仍然失败，请到 macOS“系统设置 → 隐私与安全性 → 摄像头”里允许当前浏览器访问摄像头。
+        <br>
+        <button class="retry-button" id="retryCameraBtn">重新请求摄像头</button>
+    </div>
+    <script>
+        window.CLASSROOM_DEVICE_CONFIG = {
+            backendStatusEndpoint: "http://10.180.22.127:8000/api/realtime/status"
+        };
+    </script>
+    <script type="module" src="./classroom-device.js"></script>
+</body>
+</html>
