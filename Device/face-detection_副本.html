@@ -1,0 +1,3987 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>实时人脸检测</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: #0f0f1a;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: #e0e0e0;
+            padding: 20px;
+        }
+
+        h1 {
+            font-size: 1.6rem;
+            margin-bottom: 8px;
+            color: #e94560;
+            letter-spacing: 0.5px;
+        }
+
+        .subtitle {
+            font-size: 0.85rem;
+            color: #888;
+            margin-bottom: 16px;
+        }
+
+        /* ---- 摄像头选择 ---- */
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .controls label {
+            font-size: 0.85rem;
+            color: #aaa;
+        }
+
+        #cameraSelect {
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            background: #16213e;
+            color: #e0e0e0;
+            font-size: 0.85rem;
+            cursor: pointer;
+            outline: none;
+            min-width: 200px;
+        }
+
+        #cameraSelect:focus {
+            border-color: #e94560;
+        }
+
+        .stream-input {
+            width: min(52vw, 420px);
+            min-width: 260px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            background: #10182d;
+            color: #e0e0e0;
+            font-size: 0.85rem;
+            outline: none;
+        }
+
+        .stream-input:focus {
+            border-color: #74b9ff;
+        }
+
+        .source-status {
+            padding: 5px 10px;
+            border-radius: 8px;
+            background: rgba(116, 185, 255, 0.14);
+            color: #74b9ff;
+            font-size: 0.78rem;
+            white-space: nowrap;
+        }
+
+        .mirror-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.85rem;
+            color: #aaa;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .mirror-toggle input {
+            accent-color: #e94560;
+            width: 16px;
+            height: 16px;
+        }
+
+        .mode-toggle {
+            padding: 6px 14px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            background: #16213e;
+            color: #74b9ff;
+            font-size: 0.85rem;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.3s;
+        }
+
+        .mode-toggle:hover {
+            border-color: #74b9ff;
+        }
+
+        .mode-toggle.primary {
+            background: #e94560;
+            color: #fff;
+            border-color: #e94560;
+        }
+
+        .mode-toggle.classroom {
+            background: #fdcb6e;
+            color: #2d3436;
+            border-color: #fdcb6e;
+            font-weight: 600;
+        }
+
+        /* ---- 画面容器 ---- */
+        .container {
+            position: relative;
+            width: min(96vw, 1100px);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            background: #000;
+        }
+
+        #video {
+            position: relative;
+            z-index: 1;
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        /* ---- 信息栏 ---- */
+        .info-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 16px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .status {
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+
+        .status.loading {
+            background: #2d3436;
+            color: #dfe6e9;
+        }
+
+        .status.ready {
+            background: #00b894;
+            color: #fff;
+        }
+
+        .status.error {
+            background: #d63031;
+            color: #fff;
+        }
+
+        .face-count {
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            background: #16213e;
+            color: #e94560;
+            font-weight: 600;
+        }
+
+        .fps {
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            background: #16213e;
+            color: #74b9ff;
+        }
+
+        .classroom-status {
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.3s;
+            letter-spacing: 0.5px;
+        }
+
+        .classroom-status.present {
+            background: #00b894;
+            color: #fff;
+        }
+
+        .classroom-status.away {
+            background: #636e72;
+            color: #fff;
+        }
+
+        .classroom-status.multi {
+            background: #fdcb6e;
+            color: #2d3436;
+        }
+
+        .state-duration {
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            background: #16213e;
+            color: #a29bfe;
+        }
+
+        .permission-help {
+            display: none;
+            max-width: 720px;
+            margin-top: 14px;
+            padding: 12px 14px;
+            border: 1px solid rgba(233, 69, 96, 0.35);
+            border-radius: 10px;
+            background: rgba(22, 33, 62, 0.9);
+            color: #dfe6e9;
+            font-size: 0.86rem;
+            line-height: 1.6;
+        }
+
+        .permission-help.visible {
+            display: block;
+        }
+
+        .retry-button {
+            margin-top: 10px;
+            padding: 8px 14px;
+            border: 0;
+            border-radius: 8px;
+            background: #e94560;
+            color: #fff;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .retry-button:hover {
+            background: #ff5c76;
+        }
+
+        /* ---- 调试信息 ---- */
+        .debug-info {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+            font-size: 0.75rem;
+            color: #888;
+        }
+
+        .debug-info span {
+            padding: 3px 10px;
+            border-radius: 10px;
+            background: rgba(22, 33, 62, 0.6);
+        }
+
+        .analytics-panel {
+            width: min(96vw, 1100px);
+            margin-top: 14px;
+            padding: 14px;
+            border: 1px solid rgba(116, 185, 255, 0.25);
+            border-radius: 10px;
+            background: rgba(22, 33, 62, 0.72);
+        }
+
+        .analytics-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .analytics-title {
+            font-size: 0.92rem;
+            font-weight: 700;
+            color: #dfe6e9;
+        }
+
+        .analytics-summary {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            font-size: 0.78rem;
+        }
+
+        .analytics-chip {
+            padding: 4px 9px;
+            border-radius: 8px;
+            background: rgba(15, 15, 26, 0.72);
+            color: #b2bec3;
+        }
+
+        .analytics-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.78rem;
+        }
+
+        .analytics-table th,
+        .analytics-table td {
+            padding: 7px 8px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            text-align: left;
+            white-space: nowrap;
+        }
+
+        .analytics-table th {
+            color: #74b9ff;
+            font-weight: 600;
+        }
+
+        .analytics-table td {
+            color: #dfe6e9;
+        }
+
+        .analytics-table .muted {
+            color: #8d99a6;
+        }
+
+        /* ---- 科技大屏版布局覆盖 ---- */
+        body {
+            display: block;
+            min-height: 100vh;
+            background:
+                linear-gradient(180deg, #070910 0%, #0e1320 52%, #080b12 100%);
+            color: #edf4ff;
+            padding: 18px;
+            overflow-x: hidden;
+        }
+
+        .app-shell {
+            width: min(100%, 1500px);
+            margin: 0 auto;
+        }
+
+        .app-header {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(320px, 460px);
+            gap: 18px;
+            align-items: stretch;
+            margin-bottom: 16px;
+        }
+
+        .brand-block,
+        .session-panel,
+        .control-deck,
+        .video-stage,
+        .metrics-panel,
+        .analytics-panel {
+            border: 1px solid rgba(116, 185, 255, 0.24);
+            background: rgba(10, 17, 30, 0.82);
+            box-shadow: 0 18px 46px rgba(0, 0, 0, 0.34);
+            backdrop-filter: blur(12px);
+        }
+
+        .brand-block,
+        .session-panel {
+            min-height: 132px;
+            padding: 20px 22px;
+            border-radius: 12px;
+        }
+
+        .eyebrow {
+            margin-bottom: 8px;
+            color: #7ed6df;
+            font-size: 0.78rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 2rem;
+            line-height: 1.12;
+            color: #f7fbff;
+            letter-spacing: 0;
+        }
+
+        .subtitle {
+            max-width: 680px;
+            margin: 12px 0 0;
+            color: #9caec5;
+            font-size: 0.92rem;
+        }
+
+        .session-panel {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .session-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .session-chip,
+        .backend-chip,
+        .source-status,
+        .analytics-chip,
+        .debug-info span {
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.06);
+            color: #c9d7ea;
+        }
+
+        .session-chip,
+        .backend-chip {
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .session-chip.active,
+        .backend-chip.ok {
+            border-color: rgba(0, 184, 148, 0.55);
+            background: rgba(0, 184, 148, 0.16);
+            color: #55efc4;
+        }
+
+        .session-chip.ended {
+            border-color: rgba(253, 203, 110, 0.55);
+            background: rgba(253, 203, 110, 0.14);
+            color: #ffeaa7;
+        }
+
+        .backend-chip.sending {
+            border-color: rgba(116, 185, 255, 0.55);
+            background: rgba(116, 185, 255, 0.14);
+            color: #74b9ff;
+        }
+
+        .backend-chip.error {
+            border-color: rgba(255, 118, 117, 0.6);
+            background: rgba(255, 118, 117, 0.14);
+            color: #ff7675;
+        }
+
+        .session-toggle {
+            width: 100%;
+            min-height: 52px;
+            border: 0;
+            border-radius: 10px;
+            background: #00cec9;
+            color: #061014;
+            font-size: 1rem;
+            font-weight: 800;
+            cursor: pointer;
+            box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22) inset, 0 12px 28px rgba(0, 206, 201, 0.18);
+        }
+
+        .session-toggle.active {
+            background: #ff7675;
+            color: #160606;
+            box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.24) inset, 0 12px 28px rgba(255, 118, 117, 0.18);
+        }
+
+        .session-toggle:disabled {
+            opacity: 0.62;
+            cursor: wait;
+        }
+
+        .class-name-input {
+            width: 100%;
+            min-height: 40px;
+            padding: 9px 12px;
+            border-radius: 9px;
+            border: 1px solid rgba(116, 185, 255, 0.28);
+            background: rgba(9, 18, 35, 0.96);
+            color: #edf4ff;
+            font-size: 0.88rem;
+            outline: none;
+        }
+
+        .class-name-input:focus {
+            border-color: #00cec9;
+            box-shadow: 0 0 0 3px rgba(0, 206, 201, 0.12);
+        }
+
+        .session-detail {
+            color: #9caec5;
+            font-size: 0.78rem;
+            line-height: 1.5;
+            overflow-wrap: anywhere;
+        }
+
+        .control-deck {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 16px;
+            padding: 12px;
+            border-radius: 12px;
+        }
+
+        .controls {
+            justify-content: flex-start;
+            margin: 0;
+            gap: 10px;
+        }
+
+        .controls label {
+            color: #b9c7d8;
+            font-weight: 700;
+        }
+
+        #cameraSelect,
+        .stream-input,
+        .mode-toggle {
+            min-height: 38px;
+            border-radius: 9px;
+            border-color: rgba(116, 185, 255, 0.28);
+            background: rgba(9, 18, 35, 0.96);
+            color: #edf4ff;
+        }
+
+        #cameraSelect:focus,
+        .stream-input:focus {
+            border-color: #00cec9;
+            box-shadow: 0 0 0 3px rgba(0, 206, 201, 0.12);
+        }
+
+        .mode-toggle {
+            color: #9ad8ff;
+            font-weight: 700;
+        }
+
+        .mode-toggle.primary {
+            background: #ff5c76;
+            border-color: #ff5c76;
+            color: #fff;
+        }
+
+        .mode-toggle.classroom {
+            background: #fdcb6e;
+            color: #1f2630;
+            border-color: #fdcb6e;
+        }
+
+        .mirror-toggle {
+            color: #c9d7ea;
+        }
+
+        .stage-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 280px;
+            gap: 16px;
+            align-items: start;
+        }
+
+        .video-stage {
+            padding: 12px;
+            border-radius: 12px;
+        }
+
+        .stage-toolbar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .container {
+            width: 100%;
+            max-width: none;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 0 1px rgba(116, 185, 255, 0.08), 0 24px 56px rgba(0, 0, 0, 0.52);
+        }
+
+        .metrics-panel {
+            display: grid;
+            gap: 10px;
+            padding: 12px;
+            border-radius: 12px;
+        }
+
+        .metric-tile {
+            display: grid;
+            gap: 6px;
+            min-height: 78px;
+            padding: 13px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.045);
+        }
+
+        .metric-tile.primary {
+            border-color: rgba(255, 92, 118, 0.42);
+            background: rgba(255, 92, 118, 0.1);
+        }
+
+        .metric-label {
+            color: #8fa2ba;
+            font-size: 0.74rem;
+            font-weight: 700;
+        }
+
+        .metric-tile strong {
+            color: #f7fbff;
+            font-size: 0.95rem;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+        }
+
+        .status,
+        .face-count,
+        .fps,
+        .classroom-status,
+        .state-duration {
+            border-radius: 999px;
+            box-shadow: none;
+        }
+
+        .status.loading {
+            background: rgba(178, 190, 195, 0.18);
+            color: #dfe6e9;
+        }
+
+        .status.ready {
+            background: rgba(0, 184, 148, 0.18);
+            color: #55efc4;
+        }
+
+        .status.error {
+            background: rgba(255, 118, 117, 0.18);
+            color: #ff7675;
+        }
+
+        .classroom-status.present {
+            background: rgba(0, 184, 148, 0.18);
+            color: #55efc4;
+        }
+
+        .classroom-status.away {
+            background: rgba(178, 190, 195, 0.16);
+            color: #dfe6e9;
+        }
+
+        .classroom-status.multi {
+            background: rgba(253, 203, 110, 0.2);
+            color: #ffeaa7;
+        }
+
+        .debug-info {
+            justify-content: flex-start;
+            gap: 8px;
+            margin-top: 0;
+        }
+
+        .analytics-panel {
+            width: 100%;
+            margin-top: 16px;
+            padding: 14px;
+            border-radius: 12px;
+            overflow-x: auto;
+        }
+
+        .analytics-title {
+            color: #f7fbff;
+        }
+
+        .analytics-table th {
+            color: #7ed6df;
+        }
+
+        .analytics-table td {
+            color: #e7eef8;
+        }
+
+        .permission-help {
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        @media (max-width: 980px) {
+            body {
+                padding: 12px;
+            }
+
+            .app-header,
+            .stage-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .brand-block,
+            .session-panel {
+                min-height: auto;
+            }
+
+            .metrics-panel {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 640px) {
+            h1 {
+                font-size: 1.55rem;
+            }
+
+            .controls,
+            .stage-toolbar {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            #cameraSelect,
+            .stream-input,
+            .mode-toggle,
+            .source-status {
+                width: 100%;
+                min-width: 0;
+            }
+
+            .metrics-panel {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="app-shell">
+        <header class="app-header">
+            <div class="brand-block">
+                <div class="eyebrow">ClassInsight Device Console</div>
+                <h1>课堂状态采集端</h1>
+                <p class="subtitle">实时识别人脸与课堂状态，按课堂会话向后端发送结构化数据。</p>
+            </div>
+            <div class="session-panel">
+                <div class="session-meta">
+                    <span class="session-chip idle" id="classSessionChip">未上课</span>
+                    <span class="backend-chip idle" id="backendStatusChip">后端：待发送</span>
+                    <span class="backend-chip idle" id="remoteCommandChip">远程：待连接</span>
+                </div>
+                <input
+                    class="class-name-input"
+                    id="classNameInput"
+                    type="text"
+                    maxlength="60"
+                    placeholder="输入课堂名称，例如：人工智能导论"
+                >
+                <button class="session-toggle" id="classSessionBtn" title="开始或结束课堂数据发送">开始上课</button>
+                <div class="session-detail" id="classSessionDetail">连接视频后可先预览识别结果，点击开始上课才会发送数据。</div>
+            </div>
+        </header>
+
+        <section class="control-deck" aria-label="设备控制">
+            <div class="controls">
+                <label for="cameraSelect">摄像头</label>
+                <select id="cameraSelect">
+                    <option value="">正在枚举设备...</option>
+                </select>
+                <button class="mode-toggle" id="startCameraBtn" title="使用选中的本机摄像头">使用摄像头</button>
+                <button class="mode-toggle" id="modeToggleBtn" title="切换大教室分块检测模式">普通模式</button>
+                <label class="mirror-toggle">
+                    <input type="checkbox" id="showBoxCheckbox" checked>
+                    显示检测框
+                </label>
+                <span class="source-status" id="sourceStatus">输入源：摄像头</span>
+            </div>
+
+            <div class="controls">
+                <label for="streamUrlInput">网络流</label>
+                <input
+                    class="stream-input"
+                    id="streamUrlInput"
+                    type="url"
+                    placeholder="填 HLS/HTTP 地址，例如 /Device/stream/stream.m3u8"
+                >
+                <button class="mode-toggle primary" id="startStreamBtn" title="打开网络视频流">打开网络流</button>
+            </div>
+        </section>
+
+        <section class="stage-grid">
+            <div class="video-stage">
+                <div class="stage-toolbar">
+                    <span class="status loading" id="status">加载模型中...</span>
+                    <span class="classroom-status away" id="classroomStatus">课堂状态：离开</span>
+                </div>
+                <div class="container">
+                    <video id="video" autoplay muted playsinline></video>
+                    <canvas id="canvas"></canvas>
+                </div>
+            </div>
+
+            <aside class="metrics-panel" aria-label="实时指标">
+                <div class="metric-tile primary">
+                    <span class="metric-label">当前人数</span>
+                    <strong id="faceCount">检测到: 0 人</strong>
+                </div>
+                <div class="metric-tile">
+                    <span class="metric-label">课堂时间</span>
+                    <strong id="stateDuration">课堂时间：--</strong>
+                </div>
+                <div class="metric-tile">
+                    <span class="metric-label">处理帧率</span>
+                    <strong id="fps">FPS: --</strong>
+                </div>
+                <div class="metric-tile">
+                    <span class="metric-label">视频与模型</span>
+                    <strong id="debugVideoSize">视频: --</strong>
+                </div>
+                <div class="debug-info" id="debugInfo">
+                    <span id="debugLastScore">最后置信度: --</span>
+                    <span id="debugEngine">引擎: MediaPipe</span>
+                </div>
+            </aside>
+        </section>
+
+        <section class="analytics-panel" id="analyticsPanel">
+            <div class="analytics-header">
+                <div class="analytics-title">状态统计</div>
+                <div class="analytics-summary" id="stateSummary">
+                    <span class="analytics-chip">当前：0 人</span>
+                    <span class="analytics-chip">累计：0 人</span>
+                </div>
+            </div>
+            <table class="analytics-table">
+                <thead>
+                    <tr>
+                        <th>人员</th>
+                        <th>当前状态</th>
+                        <th>抬头</th>
+                        <th>看桌面</th>
+                        <th>疑似睡觉</th>
+                        <th>无法判断</th>
+                        <th>可见总时长</th>
+                    </tr>
+                </thead>
+                <tbody id="personStatsBody">
+                    <tr><td colspan="7" class="muted">等待检测数据...</td></tr>
+                </tbody>
+            </table>
+        </section>
+    </main>
+
+    <div class="permission-help" id="permissionHelp">
+        摄像头权限被浏览器拒绝了。请点击地址栏左侧的网站权限图标，把摄像头改为“允许”，然后刷新页面或点击下面按钮。
+        <br>
+        如果仍然失败，请到 macOS“系统设置 → 隐私与安全性 → 摄像头”里允许当前浏览器访问摄像头。
+        <br>
+        <button class="retry-button" id="retryCameraBtn">重新请求摄像头</button>
+    </div>
+
+    <!-- MediaPipe Tasks Vision -->
+    <script type="module">
+        import { FaceDetector, FaceLandmarker, PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
+        import Hls from "https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.mjs";
+
+        // ========== DOM 元素 ==========
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const statusEl = document.getElementById('status');
+        const faceCountEl = document.getElementById('faceCount');
+        const fpsEl = document.getElementById('fps');
+        const cameraSelect = document.getElementById('cameraSelect');
+        const permissionHelp = document.getElementById('permissionHelp');
+        const retryCameraBtn = document.getElementById('retryCameraBtn');
+        const classroomStatusEl = document.getElementById('classroomStatus');
+        const stateDurationEl = document.getElementById('stateDuration');
+        const debugVideoSize = document.getElementById('debugVideoSize');
+        const debugLastScore = document.getElementById('debugLastScore');
+        const debugEngine = document.getElementById('debugEngine');
+        const modeToggleBtn = document.getElementById('modeToggleBtn');
+        const showBoxCheckbox = document.getElementById('showBoxCheckbox');
+        const startCameraBtn = document.getElementById('startCameraBtn');
+        const streamUrlInput = document.getElementById('streamUrlInput');
+        const startStreamBtn = document.getElementById('startStreamBtn');
+        const sourceStatus = document.getElementById('sourceStatus');
+        const stateSummaryEl = document.getElementById('stateSummary');
+        const personStatsBody = document.getElementById('personStatsBody');
+        const classSessionBtn = document.getElementById('classSessionBtn');
+        const classNameInput = document.getElementById('classNameInput');
+        const classSessionChip = document.getElementById('classSessionChip');
+        const backendStatusChip = document.getElementById('backendStatusChip');
+        const remoteCommandChip = document.getElementById('remoteCommandChip');
+        const classSessionDetail = document.getElementById('classSessionDetail');
+
+        // ========== MediaPipe 配置 ==========
+        const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
+        const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_full_range/float16/latest/blaze_face_full_range.tflite";
+        const LANDMARKER_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
+        const POSE_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task";
+        const YOLO_MODEL_URL = "./models/yolov8n.onnx";
+        const ORT_WASM_BASE = "./vendor/onnxruntime-web/";
+        const ORT_JS_URL = `${ORT_WASM_BASE}ort.min.js`;
+        const YOLO_INPUT_SIZE = 640;
+        const YOLO_PERSON_CONFIDENCE = 0.30;
+        const YOLO_TILE_PERSON_CONFIDENCE = 0.22;
+        const YOLO_NMS_IOU = 0.45;
+        const YOLO_TILE_RESULT_TTL_MS = 2600;
+        const YOLO_TILES_PER_CYCLE = 2;
+        const YOLO_TILE_MAX_SIDE = 960;
+
+        // ========== 全局状态 ==========
+        let faceDetector = null;
+        let faceLandmarker = null;
+        let poseLandmarker = null;
+        let ortRuntime = null;
+        let yoloSession = null;
+        let yoloInputName = null;
+        let yoloOutputName = null;
+        let yoloReady = false;
+        let yoloLoadError = null;
+        let currentStream = null;
+        let currentHls = null;
+        let currentStreamUrl = '';
+        let streamHealthTimer = null;
+        let streamLastVideoTime = 0;
+        let streamLastProgressAt = 0;
+        let streamRecovering = false;
+        let streamRecoverCount = 0;
+        let currentInputSource = 'camera';
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        let detectLoopStarted = false;
+
+        // 课堂状态追踪
+        let noFaceSince = null;
+        const AWAY_THRESHOLD_MS = 3000;
+
+        // 状态时长追踪
+        let currentClassroomState = 'away';
+        let stateChangedAt = null;
+        let classStartedAt = null;
+        let durationTimerStarted = false;
+
+        // 检测模式：'normal' | 'classroom'
+        // ---- 检测模式 ----
+        let detectionMode = 'normal';
+        const GRID_COLS = 5;
+        const GRID_ROWS = 4;
+        const DETECT_INTERVAL_MS = 500;
+        const GRID_OVERLAP_RATIO = 0.25;
+        const GRID_FACE_SCALE = 2.2;
+        const GRID_MAX_TILE_SIDE = 1024;
+        const GRID_TILES_PER_CYCLE = 4;
+        const GRID_RESULT_TTL_MS = 3200;
+        const POSE_DETECT_INTERVAL_MS = 2400;
+        const POSE_INPUT_MAX_SIDE = 960;
+        const FACE_LANDMARKER_INTERVAL_MS = 1200;
+        const FACE_LANDMARKER_MAX_PER_FRAME = 4;
+        const MAX_FACE_TRACKS = 100;
+        const DEBUG_LOG_MAX_PEOPLE = 12;
+        const ANALYTICS_TABLE_MAX_ROWS = 40;
+        const DEPTH_ZONES = [
+            { name: 'back', label: '远区', yMin: 0.00, yMax: 0.32, scale: 2.6, minW: 14, minH: 14, reliableW: 52, reliableH: 52, minConf: 0.22 },
+            { name: 'middle', label: '中区', yMin: 0.32, yMax: 0.58, scale: 2.0, minW: 18, minH: 18, reliableW: 60, reliableH: 60, minConf: 0.26 },
+            { name: 'front', label: '近区', yMin: 0.58, yMax: 1.01, scale: 1.4, minW: 28, minH: 28, reliableW: 76, reliableH: 76, minConf: 0.35 }
+        ];
+        const FACE_IGNORE_ZONES = [
+            // 只屏蔽画面里的吊屏区域，不能整条屏蔽顶部，否则后排学生的人脸会被过滤掉。
+            { name: 'left-hanging-screen', x: 0.18, y: 0.0, width: 0.25, height: 0.17 },
+            { name: 'right-hanging-screen', x: 0.62, y: 0.0, width: 0.38, height: 0.17 }
+        ];
+        let lastDetectTime = 0;
+        let lastDetections = [];
+        let lastDetectionsTimestamp = 0;
+        let rollingGridDetections = [];
+        let gridTileCursor = 0;
+        let gridCycleCount = 0;
+        let yoloTileCursor = 0;
+        let yoloGridCycleCount = 0;
+        let yoloDetectInProgress = false;
+        let lastPoseDetectTime = 0;
+        let lastPoses = [];
+        let lastPosesTimestamp = 0;
+        let lastFaceLandmarkerAt = 0;
+        const CACHE_MAX_AGE_MS = 1800; // 非检测帧沿用上一帧合并结果
+        const gridTileDetectionCache = new Map(); // 按 tile 替换结果，避免前后排轮询时互相闪烁
+        const yoloTileDetectionCache = new Map();
+
+        // 尺寸阈值（按模式）
+        function getDepthZoneByNormalizedY(y) {
+            const normalizedY = Math.max(0, Math.min(1, y));
+            return DEPTH_ZONES.find(zone => normalizedY >= zone.yMin && normalizedY < zone.yMax) || DEPTH_ZONES[1];
+        }
+
+        function getDepthZoneForTile(tile, fullH) {
+            const centerY = (tile.srcY + tile.srcH / 2) / Math.max(fullH, 1);
+            return getDepthZoneByNormalizedY(centerY);
+        }
+
+        function getDepthZoneForBox(box, fullH = video.videoHeight || canvas.height || 1) {
+            const centerY = (box.originY + box.height / 2) / Math.max(fullH, 1);
+            return getDepthZoneByNormalizedY(centerY);
+        }
+
+        function getFaceThresholds(zone = null) {
+            if (detectionMode === 'classroom') {
+                const z = zone || DEPTH_ZONES[1];
+                return {
+                    minW: z.minW,
+                    minH: z.minH,
+                    reliableW: z.reliableW,
+                    reliableH: z.reliableH,
+                    minConf: z.minConf
+                };
+            }
+            return { minW: 45, minH: 45, reliableW: 90, reliableH: 90, minConf: 0.45 };
+        }
+
+        // 跟踪状态：EMA 平滑 + 帧计数
+        // trackedFaces: Map<id, { box, score, confirmed, lost, keypoints }>
+        let trackedFaces = [];
+        const CONFIRM_FRAMES = 2;   // 连续 2 帧才显示，过滤单帧误检同时保留响应速度
+        const LOST_FRAMES = 3;      // 连续 3 帧丢失才移除，减少移动时旧框残留
+        const EMA_ALPHA = 0.45;      // x/y 平滑系数
+        const EMA_SIZE_ALPHA = 0.85;  // w/h 平滑系数（更高=更快跟随变化）
+        const TRACK_MIN_CENTER_DISTANCE = 28;
+        const TRACK_CENTER_MATCH_RATIO = 0.9;
+        const DUP_MIN_CENTER_DISTANCE = 18;
+        const DUP_CENTER_MATCH_RATIO = 0.58;
+        let debugRawDetection = false; // true=跳过跟踪直接画 raw box（调试用）
+        let nextFaceId = 0;
+        let showDetectionBox = true; // 显示检测框开关
+        let latestStatusPayload = null;
+        const DEVICE_ID = 'camera-01';
+        const CLASS_ID = 1;
+        const BACKEND_BASE_URL = 'http://10.180.17.57:8000';
+        const BACKEND_STATUS_ENDPOINT = `${BACKEND_BASE_URL}/api/classes/${CLASS_ID}/device-events`;
+        const BACKEND_COMMAND_ENDPOINT = `${BACKEND_BASE_URL}/api/devices/${DEVICE_ID}/command`;
+        const BACKEND_POST_INTERVAL_MS = 1000;
+        const COMMAND_POLL_INTERVAL_MS = 1000;
+        let lastBackendPostAt = 0;
+        let commandPollTimer = null;
+        let commandPollInFlight = false;
+        let lastHandledCommandKey = '';
+        let classSessionActive = false;
+        let classSessionId = null;
+        let classSessionStartedAt = null;
+        let classSessionEndedAt = null;
+        let classEndedAt = null;
+        let classSessionName = '';
+
+        // 数据统计：和画框/模型解耦，专门负责人数与每人状态时长
+        const STUDY_STATES = ['抬头', '看桌面', '疑似睡觉', '无法判断'];
+        const ANALYTICS_TRACK_TTL_MS = 30000;
+        const ANALYTICS_MATCH_IOU = 0.12;
+        const ANALYTICS_RENDER_INTERVAL_MS = 1000;
+        let analyticsTracks = [];
+        let nextAnalyticsId = 1;
+        let latestAnalyticsSnapshot = null;
+        let lastAnalyticsRenderAt = 0;
+
+        // 调试
+        let debugLastLog = 0;
+        let lastConfidence = null;
+
+        // 复用离屏 canvas，避免大教室模式每帧反复创建大对象造成卡顿和内存抖动。
+        const frameCanvas = document.createElement('canvas');
+        const frameCtx = frameCanvas.getContext('2d', { willReadFrequently: true });
+        const tileCanvas = document.createElement('canvas');
+        const tileCtx = tileCanvas.getContext('2d', { willReadFrequently: true });
+        const poseCanvas = document.createElement('canvas');
+        const poseCtx = poseCanvas.getContext('2d', { willReadFrequently: true });
+        const faceCropCanvas = document.createElement('canvas');
+        const faceCropCtx = faceCropCanvas.getContext('2d', { willReadFrequently: true });
+        const yoloCanvas = document.createElement('canvas');
+        const yoloCtx = yoloCanvas.getContext('2d', { willReadFrequently: true });
+
+        // ========== 课堂状态 ==========
+        function updateClassroomStatus(faceCount) {
+            let state;
+
+            if (faceCount >= 2) {
+                state = 'multi';
+                noFaceSince = null;
+            } else if (faceCount === 1) {
+                state = 'present';
+                noFaceSince = null;
+            } else {
+                const now = performance.now();
+                if (noFaceSince === null) noFaceSince = now;
+                if (now - noFaceSince >= AWAY_THRESHOLD_MS) {
+                    state = 'away';
+                } else {
+                    return;
+                }
+            }
+
+            if (classroomStatusEl.dataset.state !== state) {
+                classroomStatusEl.dataset.state = state;
+                classroomStatusEl.className = 'classroom-status ' + state;
+                const labels = { present: '课堂状态：在座', away: '课堂状态：离开', multi: '课堂状态：多人' };
+                classroomStatusEl.textContent = labels[state];
+                currentClassroomState = state;
+                stateChangedAt = Date.now();
+            }
+        }
+
+        function updateDurationDisplay() {
+            if (!classStartedAt) {
+                stateDurationEl.textContent = '课堂时间：--';
+                return;
+            }
+            const endTime = classSessionActive ? Date.now() : (classEndedAt || Date.now());
+            const elapsed = Math.floor((endTime - classStartedAt) / 1000);
+            const mm = Math.floor(elapsed / 60);
+            const ss = elapsed % 60;
+            stateDurationEl.textContent = `课堂时间：${mm}分${String(ss).padStart(2, '0')}秒`;
+        }
+
+        // 立即启动持续时间刷新定时器（不依赖 main 异步流程）
+        if (!durationTimerStarted) {
+            durationTimerStarted = true;
+            updateDurationDisplay();
+            setInterval(updateDurationDisplay, 1000);
+            console.log('✅ 持续时间定时器已启动');
+        }
+
+        // ========== 摄像头 ==========
+        function showCameraError(err) {
+            const isPermissionDenied = err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError');
+            statusEl.textContent = isPermissionDenied
+                ? '❌ 摄像头权限被拒绝'
+                : '❌ 无法访问摄像头: ' + (err && err.message ? err.message : '未知错误');
+            statusEl.className = 'status error';
+            permissionHelp.classList.add('visible');
+        }
+
+        function resetDetectionState() {
+            lastDetections = [];
+            lastDetectionsTimestamp = 0;
+            lastDetectTime = 0;
+            rollingGridDetections = [];
+            gridTileDetectionCache.clear();
+            gridTileCursor = 0;
+            gridCycleCount = 0;
+            yoloTileDetectionCache.clear();
+            yoloTileCursor = 0;
+            yoloGridCycleCount = 0;
+            yoloDetectInProgress = false;
+            lastPoses = [];
+            lastPosesTimestamp = 0;
+            lastPoseDetectTime = 0;
+            lastFaceLandmarkerAt = 0;
+            trackedFaces = [];
+            analyticsTracks = [];
+            nextAnalyticsId = 1;
+            latestAnalyticsSnapshot = null;
+            noFaceSince = null;
+            stateChangedAt = null;
+            updateDurationDisplay();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function stopCurrentVideoSource() {
+            stopStreamHealthMonitor();
+            if (currentStream) {
+                currentStream.getTracks().forEach(t => t.stop());
+                currentStream = null;
+            }
+            if (currentHls) {
+                currentHls.destroy();
+                currentHls = null;
+            }
+            video.pause();
+            video.removeAttribute('src');
+            video.srcObject = null;
+            video.load();
+            currentStreamUrl = '';
+        }
+
+        function waitForVideoReady() {
+            return new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    cleanup();
+                    reject(new Error('视频加载超时'));
+                }, 15000);
+
+                function cleanup() {
+                    clearTimeout(timeout);
+                    video.removeEventListener('loadedmetadata', onReady);
+                    video.removeEventListener('canplay', onReady);
+                    video.removeEventListener('error', onError);
+                }
+
+                function onReady() {
+                    cleanup();
+                    video.play().then(resolve).catch(resolve);
+                }
+
+                function onError() {
+                    cleanup();
+                    reject(new Error('视频源无法播放，请检查地址、格式或跨域设置'));
+                }
+
+                if (video.readyState >= 2 && video.videoWidth > 0) {
+                    onReady();
+                    return;
+                }
+
+                video.addEventListener('loadedmetadata', onReady, { once: true });
+                video.addEventListener('canplay', onReady, { once: true });
+                video.addEventListener('error', onError, { once: true });
+            });
+        }
+
+        function isHlsUrl(url) {
+            return /\.m3u8($|\?)/i.test(url);
+        }
+
+        function stopStreamHealthMonitor() {
+            if (streamHealthTimer) {
+                clearInterval(streamHealthTimer);
+                streamHealthTimer = null;
+            }
+            streamRecovering = false;
+            streamRecoverCount = 0;
+            streamLastVideoTime = 0;
+            streamLastProgressAt = 0;
+        }
+
+        function seekNearLiveEdge() {
+            try {
+                const ranges = video.seekable;
+                if (!ranges || ranges.length === 0) return;
+                const liveEdge = ranges.end(ranges.length - 1);
+                if (Number.isFinite(liveEdge) && liveEdge - video.currentTime > 6) {
+                    video.currentTime = Math.max(ranges.start(ranges.length - 1), liveEdge - 2);
+                }
+            } catch (err) {
+                console.warn('跳转直播边缘失败:', err.message || err);
+            }
+        }
+
+        async function recoverNetworkStream(reason = 'stalled') {
+            if (streamRecovering || !currentStreamUrl) return;
+            streamRecovering = true;
+            streamRecoverCount++;
+            console.warn(`网络流卡住，尝试自动恢复(${streamRecoverCount}): ${reason}`);
+            statusEl.textContent = '⏳ 网络流恢复中...';
+            statusEl.className = 'status loading';
+
+            try {
+                if (currentHls && streamRecoverCount <= 2) {
+                    currentHls.recoverMediaError();
+                    currentHls.startLoad(-1);
+                    seekNearLiveEdge();
+                    await video.play().catch(() => {});
+                } else if (currentHls) {
+                    const url = currentStreamUrl;
+                    currentHls.destroy();
+                    currentHls = new Hls({
+                        lowLatencyMode: true,
+                        liveSyncDurationCount: 3,
+                        liveMaxLatencyDurationCount: 8,
+                        maxBufferLength: 8,
+                        backBufferLength: 0,
+                        maxLiveSyncPlaybackRate: 1.2
+                    });
+                    currentHls.loadSource(url);
+                    currentHls.attachMedia(video);
+                    currentHls.on(Hls.Events.ERROR, onHlsError);
+                    await waitForVideoReady().catch(() => {});
+                    streamRecoverCount = 0;
+                } else {
+                    video.load();
+                    await video.play().catch(() => {});
+                }
+
+                streamLastVideoTime = video.currentTime || 0;
+                streamLastProgressAt = performance.now();
+                statusEl.textContent = '✅ 网络流检测中';
+                statusEl.className = 'status ready';
+            } finally {
+                streamRecovering = false;
+            }
+        }
+
+        function startStreamHealthMonitor() {
+            stopStreamHealthMonitor();
+            streamLastVideoTime = video.currentTime || 0;
+            streamLastProgressAt = performance.now();
+
+            streamHealthTimer = setInterval(() => {
+                if (currentInputSource !== 'stream' || !currentStreamUrl) return;
+                if (video.readyState === 0) return;
+
+                const now = performance.now();
+                const currentTime = video.currentTime || 0;
+                const advanced = Math.abs(currentTime - streamLastVideoTime) > 0.08;
+
+                if (advanced) {
+                    streamLastVideoTime = currentTime;
+                    streamLastProgressAt = now;
+                    if (streamRecoverCount > 0) streamRecoverCount = 0;
+                    seekNearLiveEdge();
+                    return;
+                }
+
+                if (video.paused && !video.ended) {
+                    video.play().catch(() => {});
+                }
+
+                if (now - streamLastProgressAt > 8000) {
+                    recoverNetworkStream(`currentTime ${currentTime.toFixed(2)} 超过 8 秒未前进`);
+                }
+            }, 2500);
+        }
+
+        function onHlsError(event, data) {
+            if (!data) return;
+            console.warn('HLS 事件:', data.type, data.details, data.fatal ? 'fatal' : 'non-fatal');
+
+            if (!data.fatal) {
+                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                    currentHls?.startLoad(-1);
+                }
+                return;
+            }
+
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                recoverNetworkStream('fatal network error');
+            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                currentHls?.recoverMediaError();
+            } else {
+                recoverNetworkStream('fatal hls error');
+            }
+        }
+
+        async function startNetworkStream(url) {
+            const streamUrl = (url || '').trim();
+            if (!streamUrl) throw new Error('请先输入网络视频流地址');
+            if (/^rtsp:\/\//i.test(streamUrl)) {
+                throw new Error('浏览器不能直接播放 RTSP。请先用 FFmpeg/VLC 转成 HLS，例如 /Device/stream/stream.m3u8');
+            }
+
+            stopCurrentVideoSource();
+            resetDetectionState();
+            currentStreamUrl = streamUrl;
+            video.crossOrigin = 'anonymous';
+            video.muted = true;
+            video.playsInline = true;
+
+            if (isHlsUrl(streamUrl) && Hls.isSupported()) {
+                currentHls = new Hls({
+                    lowLatencyMode: true,
+                    liveSyncDurationCount: 3,
+                    liveMaxLatencyDurationCount: 8,
+                    maxBufferLength: 8,
+                    backBufferLength: 0,
+                    maxLiveSyncPlaybackRate: 1.2
+                });
+                currentHls.loadSource(streamUrl);
+                currentHls.attachMedia(video);
+                currentHls.on(Hls.Events.ERROR, onHlsError);
+            } else {
+                video.src = streamUrl;
+            }
+
+            await waitForVideoReady();
+            currentInputSource = 'stream';
+            detectionMode = 'classroom';
+            modeToggleBtn.textContent = '🏫 大教室模式';
+            modeToggleBtn.classList.add('classroom');
+            sourceStatus.textContent = '输入源：网络流';
+            statusEl.textContent = '✅ 网络流检测中';
+            statusEl.className = 'status ready';
+            localStorage.setItem('classroomStreamUrl', streamUrl);
+            startStreamHealthMonitor();
+        }
+
+        async function enumerateCameras() {
+            try {
+                const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                tempStream.getTracks().forEach(t => t.stop());
+            } catch (e) {
+                console.error('请求摄像头权限失败:', e);
+                showCameraError(e);
+            }
+
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoInputs = devices.filter(d => d.kind === 'videoinput');
+
+            console.log(`🔍 找到 ${videoInputs.length} 个视频设备:`);
+            videoInputs.forEach((d, i) => {
+                console.log(`  [${i}] label="${d.label}" deviceId="${d.deviceId.slice(0, 30)}..." groupId="${d.groupId}"`);
+            });
+
+            cameraSelect.innerHTML = '';
+            if (videoInputs.length === 0) {
+                cameraSelect.innerHTML = '<option value="">未检测到摄像头</option>';
+                return [];
+            }
+
+            videoInputs.forEach((device, i) => {
+                const option = document.createElement('option');
+                option.value = device.deviceId;
+                option.textContent = device.label || `摄像头 ${i + 1}`;
+                cameraSelect.appendChild(option);
+            });
+
+            const externalCam = videoInputs.find(d =>
+                d.label && !d.label.toLowerCase().includes('built-in') && !d.label.includes('内建')
+            );
+            if (externalCam) {
+                cameraSelect.value = externalCam.deviceId;
+                console.log('✅ 自动选择外接相机:', externalCam.label);
+            }
+
+            return videoInputs;
+        }
+
+        async function startCamera(deviceId) {
+            stopCurrentVideoSource();
+            resetDetectionState();
+            video.removeAttribute('crossorigin');
+
+            const constraints = {
+                video: {
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 }
+                }
+            };
+            if (deviceId) constraints.video.deviceId = { exact: deviceId };
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = stream;
+                video.srcObject = stream;
+                currentInputSource = 'camera';
+                sourceStatus.textContent = '输入源：摄像头';
+                return new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        video.play();
+                        resolve();
+                    };
+                });
+            } catch (err) {
+                showCameraError(err);
+                throw err;
+            }
+        }
+
+        // ========== 加载 MediaPipe 模型 ==========
+        async function getOrtRuntime() {
+            if (ortRuntime) return ortRuntime;
+            if (!window.ort) {
+                await new Promise((resolve, reject) => {
+                    const existing = document.querySelector(`script[src="${ORT_JS_URL}"]`);
+                    if (existing) {
+                        existing.addEventListener('load', resolve, { once: true });
+                        existing.addEventListener('error', reject, { once: true });
+                        return;
+                    }
+
+                    const script = document.createElement('script');
+                    script.src = ORT_JS_URL;
+                    script.async = true;
+                    script.onload = resolve;
+                    script.onerror = () => reject(new Error(`无法加载 ONNX Runtime: ${ORT_JS_URL}`));
+                    document.head.appendChild(script);
+                });
+            }
+            if (!window.ort) throw new Error('ONNX Runtime 全局对象 window.ort 未初始化');
+            ortRuntime = window.ort;
+            ortRuntime.env.wasm.wasmPaths = ORT_WASM_BASE;
+            return ortRuntime;
+        }
+
+        async function loadYoloVersion4Model() {
+            try {
+                const ort = await getOrtRuntime();
+                yoloSession = await ort.InferenceSession.create(YOLO_MODEL_URL, {
+                    executionProviders: ['wasm'],
+                    graphOptimizationLevel: 'all'
+                });
+                yoloInputName = yoloSession.inputNames[0];
+                yoloOutputName = yoloSession.outputNames[0];
+                yoloReady = true;
+                yoloLoadError = null;
+                console.log(`✅ 版本4 YOLO 人体检测模型加载成功: ${YOLO_MODEL_URL}`);
+            } catch (err) {
+                yoloReady = false;
+                yoloLoadError = err;
+                console.warn(`⚠️ 版本4 YOLO 模型未启用，将回退到原人脸检测: ${err.message || err}`);
+            }
+        }
+
+        async function loadModels() {
+            console.log('🔧 初始化 MediaPipe WASM...');
+            const vision = await FilesetResolver.forVisionTasks(WASM_URL);
+            console.log('✅ WASM 运行时就绪');
+
+            let delegate = 'GPU';
+            const detOpts = (d) => ({ baseOptions: { modelAssetPath: MODEL_URL, delegate: d }, runningMode: 'IMAGE', minDetectionConfidence: 0.18 });
+            const lmOpts = (d) => ({
+                baseOptions: { modelAssetPath: LANDMARKER_URL, delegate: d },
+                runningMode: 'IMAGE',
+                numFaces: 1,
+                minFaceDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5,
+                outputFacialTransformationMatrixes: true
+            });
+            const poseOpts = (d) => ({
+                baseOptions: { modelAssetPath: POSE_URL, delegate: d },
+                runningMode: 'IMAGE',
+                numPoses: 20,
+                minPoseDetectionConfidence: 0.18,
+                minTrackingConfidence: 0.18
+            });
+
+            try {
+                [faceDetector, faceLandmarker, poseLandmarker] = await Promise.all([
+                    FaceDetector.createFromOptions(vision, detOpts('GPU')),
+                    FaceLandmarker.createFromOptions(vision, lmOpts('GPU')),
+                    PoseLandmarker.createFromOptions(vision, poseOpts('GPU'))
+                ]);
+            } catch (gpuErr) {
+                console.warn('⚠️ GPU 不可用，降级 CPU:', gpuErr.message || gpuErr);
+                delegate = 'CPU';
+                [faceDetector, faceLandmarker, poseLandmarker] = await Promise.all([
+                    FaceDetector.createFromOptions(vision, detOpts('CPU')),
+                    FaceLandmarker.createFromOptions(vision, lmOpts('CPU')),
+                    PoseLandmarker.createFromOptions(vision, poseOpts('CPU'))
+                ]);
+            }
+
+            await loadYoloVersion4Model();
+            debugEngine.textContent = yoloReady
+                ? `引擎: YOLO Person + 三分类兜底 / Detector+Pose (${delegate})`
+                : `引擎: Detector+Pose (${delegate})`;
+            console.log(`✅ 三模型加载成功 (${delegate}): FaceDetector + FaceLandmarker + PoseLandmarker`);
+        }
+
+        // ========== 人脸检测 + 绘制 ==========
+        // 6 关键点名称（blaze_face_short_range）
+        const KEYPOINT_NAMES = ['左眼', '右眼', '鼻尖', '嘴', '左耳', '右耳'];
+        const KEYPOINT_COLORS = ['#00e5ff', '#00e5ff', '#ffea00', '#ff6d00', '#76ff03', '#76ff03'];
+
+        // Head pose estimation: landmark indices (Face Landmarker 468-point model)
+        const LM_NOSE_TIP = 1;
+        const LM_FOREHEAD = 10;     // glabella, between eyebrows
+        const LM_CHIN = 152;        // lowest point on chin
+        const LM_LEFT_EYE = 33;     // left eye outer corner
+        const LM_RIGHT_EYE = 263;   // right eye outer corner
+
+        // ---- 工具：video → canvas ----
+        function resizeCanvasIfNeeded(targetCanvas, width, height) {
+            if (targetCanvas.width !== width) targetCanvas.width = width;
+            if (targetCanvas.height !== height) targetCanvas.height = height;
+        }
+
+        function videoToCanvas(targetCanvas, targetCtx, maxSide = 0) {
+            const srcW = video.videoWidth;
+            const srcH = video.videoHeight;
+            if (!srcW || !srcH) return targetCanvas;
+
+            let targetW = srcW;
+            let targetH = srcH;
+            if (maxSide > 0) {
+                const scale = Math.min(1, maxSide / Math.max(srcW, srcH));
+                targetW = Math.max(1, Math.round(srcW * scale));
+                targetH = Math.max(1, Math.round(srcH * scale));
+            }
+
+            resizeCanvasIfNeeded(targetCanvas, targetW, targetH);
+            targetCtx.drawImage(video, 0, 0, targetW, targetH);
+            return targetCanvas;
+        }
+
+        function prepareYoloInput(sourceCanvas) {
+            const sourceW = sourceCanvas.width;
+            const sourceH = sourceCanvas.height;
+            const scale = Math.min(YOLO_INPUT_SIZE / sourceW, YOLO_INPUT_SIZE / sourceH);
+            const targetW = Math.max(1, Math.round(sourceW * scale));
+            const targetH = Math.max(1, Math.round(sourceH * scale));
+            const padX = Math.floor((YOLO_INPUT_SIZE - targetW) / 2);
+            const padY = Math.floor((YOLO_INPUT_SIZE - targetH) / 2);
+
+            resizeCanvasIfNeeded(yoloCanvas, YOLO_INPUT_SIZE, YOLO_INPUT_SIZE);
+            yoloCtx.fillStyle = 'rgb(114, 114, 114)';
+            yoloCtx.fillRect(0, 0, YOLO_INPUT_SIZE, YOLO_INPUT_SIZE);
+            yoloCtx.drawImage(sourceCanvas, 0, 0, sourceW, sourceH, padX, padY, targetW, targetH);
+
+            const image = yoloCtx.getImageData(0, 0, YOLO_INPUT_SIZE, YOLO_INPUT_SIZE);
+            const pixels = image.data;
+            const planeSize = YOLO_INPUT_SIZE * YOLO_INPUT_SIZE;
+            const input = new Float32Array(3 * planeSize);
+            for (let i = 0, p = 0; i < pixels.length; i += 4, p++) {
+                input[p] = pixels[i] / 255;
+                input[planeSize + p] = pixels[i + 1] / 255;
+                input[planeSize * 2 + p] = pixels[i + 2] / 255;
+            }
+
+            return {
+                input,
+                scale,
+                padX,
+                padY,
+                sourceW,
+                sourceH
+            };
+        }
+
+        function parseYoloOutput(output, meta, minConfidence = YOLO_PERSON_CONFIDENCE) {
+            const dims = output.dims || [];
+            const data = output.data || [];
+            if (dims.length < 3 || data.length === 0) return [];
+
+            let count = 0;
+            let attrs = 0;
+            let valueAt;
+            if (dims[1] <= dims[2]) {
+                attrs = dims[1];
+                count = dims[2];
+                valueAt = (attr, index) => data[attr * count + index];
+            } else {
+                count = dims[1];
+                attrs = dims[2];
+                valueAt = (attr, index) => data[index * attrs + attr];
+            }
+
+            const candidates = [];
+            for (let i = 0; i < count; i++) {
+                const cx = valueAt(0, i);
+                const cy = valueAt(1, i);
+                const w = valueAt(2, i);
+                const h = valueAt(3, i);
+                let score = 0;
+
+                if (attrs >= 85) {
+                    score = (valueAt(4, i) || 0) * (valueAt(5, i) || 0);
+                } else if (attrs >= 5) {
+                    score = valueAt(4, i) || 0;
+                }
+
+                if (score < minConfidence) continue;
+
+                const x1 = (cx - w / 2 - meta.padX) / meta.scale;
+                const y1 = (cy - h / 2 - meta.padY) / meta.scale;
+                const x2 = (cx + w / 2 - meta.padX) / meta.scale;
+                const y2 = (cy + h / 2 - meta.padY) / meta.scale;
+                const box = clampBox({
+                    originX: x1,
+                    originY: y1,
+                    width: x2 - x1,
+                    height: y2 - y1
+                }, meta.sourceW, meta.sourceH);
+
+                const aspect = box.height / Math.max(box.width, 1);
+                const areaRatio = (box.width * box.height) / Math.max(meta.sourceW * meta.sourceH, 1);
+                if (box.width < 8 || box.height < 16 || aspect < 0.55 || aspect > 5.5 || areaRatio > 0.85) continue;
+
+                candidates.push({
+                    boundingBox: box,
+                    categories: [{ score }],
+                    keypoints: null,
+                    _class: 'person',
+                    _detector: 'yolo-person'
+                });
+            }
+
+            return nmsDetections(candidates, YOLO_NMS_IOU).slice(0, MAX_FACE_TRACKS);
+        }
+
+        function nmsDetections(detections, threshold) {
+            const sorted = [...detections].sort((a, b) =>
+                (b.categories?.[0]?.score ?? 0) - (a.categories?.[0]?.score ?? 0)
+            );
+            const picked = [];
+            while (sorted.length > 0) {
+                const current = sorted.shift();
+                picked.push(current);
+                for (let i = sorted.length - 1; i >= 0; i--) {
+                    if (iou(current.boundingBox, sorted[i].boundingBox) > threshold) {
+                        sorted.splice(i, 1);
+                    }
+                }
+            }
+            return picked;
+        }
+
+        async function detectYoloPersons(sourceCanvas, minConfidence = YOLO_PERSON_CONFIDENCE) {
+            if (!yoloReady || !yoloSession) return [];
+            const ort = await getOrtRuntime();
+            const meta = prepareYoloInput(sourceCanvas);
+            const tensor = new ort.Tensor('float32', meta.input, [1, 3, YOLO_INPUT_SIZE, YOLO_INPUT_SIZE]);
+            const results = await yoloSession.run({ [yoloInputName]: tensor });
+            const output = results[yoloOutputName] || results[Object.keys(results)[0]];
+            return parseYoloOutput(output, meta, minConfidence);
+        }
+
+        function getYoloTilesThisCycle(tiles) {
+            const selected = [];
+            const orderedTiles = [...tiles].sort((a, b) => {
+                if (a.row !== b.row) return a.row - b.row;
+                return a.col - b.col;
+            });
+
+            for (let i = 0; i < YOLO_TILES_PER_CYCLE && orderedTiles.length > 0; i++) {
+                selected.push(orderedTiles[(yoloTileCursor + i) % orderedTiles.length]);
+            }
+            yoloTileCursor = (yoloTileCursor + YOLO_TILES_PER_CYCLE) % Math.max(orderedTiles.length, 1);
+            return selected;
+        }
+
+        function mapYoloTileDetection(det, tile, scale, zone, fullW, fullH) {
+            const box = det.boundingBox;
+            const mappedBox = clampBox({
+                originX: tile.srcX + box.originX / scale,
+                originY: tile.srcY + box.originY / scale,
+                width: box.width / scale,
+                height: box.height / scale
+            }, fullW, fullH);
+
+            return {
+                boundingBox: mappedBox,
+                categories: det.categories,
+                keypoints: null,
+                _class: 'person',
+                _detector: 'yolo-person-tile',
+                _source: `tile-${tile.row}-${tile.col}`,
+                _zone: zone.name,
+                _zoneLabel: zone.label
+            };
+        }
+
+        function isPlausibleYoloPerson(det, videoW, videoH) {
+            const box = det.boundingBox || det.box;
+            if (!box) return false;
+
+            const score = det.categories?.[0]?.score ?? det.score ?? 0;
+            const zone = det._zone
+                ? (DEPTH_ZONES.find(z => z.name === det._zone) || getDepthZoneForBox(box, videoH))
+                : getDepthZoneForBox(box, videoH);
+            const aspect = box.height / Math.max(box.width, 1);
+            const areaRatio = (box.width * box.height) / Math.max(videoW * videoH, 1);
+
+            const thresholds = {
+                back: { minW: 16, minH: 28, minConf: 0.20, minArea: 0.00016 },
+                middle: { minW: 22, minH: 36, minConf: 0.24, minArea: 0.00022 },
+                front: { minW: 34, minH: 54, minConf: 0.28, minArea: 0.00036 }
+            };
+            const t = thresholds[zone.name] || thresholds.middle;
+
+            if (score < t.minConf) return false;
+            if (box.width < t.minW || box.height < t.minH) return false;
+            if (areaRatio < t.minArea || areaRatio > 0.55) return false;
+            if (aspect < 0.62 || aspect > 3.8) return false;
+
+            // 水杯、保温杯、桌面小物件常被识别成非常窄的“person”。
+            if (box.width < 24 && aspect > 2.7) return false;
+            if (box.width < 30 && box.height < 70 && score < 0.42) return false;
+
+            return true;
+        }
+
+        function collectFreshYoloDetections(now) {
+            const detections = [];
+            for (const [key, value] of yoloTileDetectionCache.entries()) {
+                if (!value || now - value.updatedAt > YOLO_TILE_RESULT_TTL_MS) {
+                    yoloTileDetectionCache.delete(key);
+                    continue;
+                }
+                detections.push(...value.detections);
+            }
+            return detections;
+        }
+
+        async function detectYoloClassroom(now) {
+            const fullW = video.videoWidth;
+            const fullH = video.videoHeight;
+            if (!fullW || !fullH) return [];
+
+            const fullCanvas = videoToCanvas(frameCanvas, frameCtx);
+
+            if (yoloGridCycleCount % 5 === 0) {
+                const fullDetections = await detectYoloPersons(fullCanvas, YOLO_PERSON_CONFIDENCE);
+                yoloTileDetectionCache.set('full', {
+                    updatedAt: now,
+                    detections: fullDetections.map(det => ({
+                        ...det,
+                        _source: 'full',
+                        _zone: getDepthZoneForBox(det.boundingBox, fullH).name,
+                        _zoneLabel: getDepthZoneForBox(det.boundingBox, fullH).label
+                    }))
+                });
+            }
+
+            const tiles = getGridTiles(fullW, fullH);
+            const tilesThisCycle = getYoloTilesThisCycle(tiles);
+            yoloGridCycleCount++;
+
+            for (const tile of tilesThisCycle) {
+                const zone = getDepthZoneForTile(tile, fullH);
+                const zoneScaleBoost = zone.name === 'back' ? 1.25 : 1.05;
+                const scale = Math.min(zone.scale * zoneScaleBoost, YOLO_TILE_MAX_SIDE / Math.max(tile.srcW, tile.srcH));
+                const scaledW = Math.max(1, Math.round(tile.srcW * scale));
+                const scaledH = Math.max(1, Math.round(tile.srcH * scale));
+
+                resizeCanvasIfNeeded(tileCanvas, scaledW, scaledH);
+                tileCtx.imageSmoothingEnabled = true;
+                tileCtx.imageSmoothingQuality = 'high';
+                tileCtx.drawImage(fullCanvas, tile.srcX, tile.srcY, tile.srcW, tile.srcH, 0, 0, scaledW, scaledH);
+
+                const minConfidence = zone.name === 'front' ? YOLO_PERSON_CONFIDENCE : YOLO_TILE_PERSON_CONFIDENCE;
+                const tileDetections = await detectYoloPersons(tileCanvas, minConfidence);
+                const mapped = tileDetections.map(det => mapYoloTileDetection(det, tile, scale, zone, fullW, fullH));
+                yoloTileDetectionCache.set(`tile-${tile.row}-${tile.col}`, {
+                    updatedAt: now,
+                    detections: mapped
+                });
+            }
+
+            const plausible = collectFreshYoloDetections(now)
+                .filter(det => isPlausibleYoloPerson(det, fullW, fullH));
+            return nmsDetections(plausible, 0.38).slice(0, MAX_FACE_TRACKS);
+        }
+
+        async function runYoloDetectionCycle(now) {
+            if (yoloDetectInProgress) return;
+            yoloDetectInProgress = true;
+            try {
+                const detections = detectionMode === 'classroom'
+                    ? await detectYoloClassroom(now)
+                    : await detectYoloPersons(videoToCanvas(frameCanvas, frameCtx));
+                lastDetections = detections;
+                lastDetectionsTimestamp = performance.now();
+            } catch (e) {
+                console.error('版本四 YOLO 人体检测出错:', e.message || e);
+                if (performance.now() - lastDetectionsTimestamp > CACHE_MAX_AGE_MS) {
+                    lastDetections = [];
+                }
+            } finally {
+                yoloDetectInProgress = false;
+            }
+        }
+
+        function classifyPersonCropHeuristic(box, videoW, videoH) {
+            const normalizedY = (box.originY + box.height / 2) / Math.max(videoH, 1);
+            const aspect = box.height / Math.max(box.width, 1);
+            const areaRatio = (box.width * box.height) / Math.max(videoW * videoH, 1);
+
+            if (aspect >= 1.18) {
+                return { state: '抬头', confidence: areaRatio >= 0.003 ? 0.76 : 0.68, classifier: 'heuristic-person-v1' };
+            }
+            if (aspect >= 0.58) {
+                return { state: '看桌面', confidence: normalizedY > 0.55 ? 0.72 : 0.64, classifier: 'heuristic-person-v1' };
+            }
+            if (aspect < 0.45 && box.width > box.height * 1.6) {
+                return { state: '疑似睡觉', confidence: 0.62, classifier: 'heuristic-person-v1' };
+            }
+            return { state: '看桌面', confidence: 0.58, classifier: 'heuristic-person-v1' };
+        }
+
+        // ---- 工具：在 canvas 上检测人脸 ----
+        async function detectOnCanvas(sourceCanvas) {
+            if (!faceDetector) return { detections: [] };
+            try {
+                return faceDetector.detect(sourceCanvas);
+            } catch (e) {
+                console.error('检测出错:', e.message || e);
+                return { detections: [] };
+            }
+        }
+
+        function cloneDetectionWithBox(det, box, keypoints, meta = {}) {
+            return {
+                ...det,
+                boundingBox: box,
+                keypoints: keypoints || det.keypoints || null,
+                ...meta
+            };
+        }
+
+        function mapTileDetection(det, srcX, srcY, srcW, srcH, scale, row, col, zone, fullW, fullH) {
+            const box = det.boundingBox;
+            const isNormalizedBox = box.width <= 1 && box.height <= 1;
+            const rawMappedBox = isNormalizedBox
+                ? {
+                    originX: srcX + box.originX * srcW,
+                    originY: srcY + box.originY * srcH,
+                    width: box.width * srcW,
+                    height: box.height * srcH
+                }
+                : {
+                    originX: srcX + box.originX / scale,
+                    originY: srcY + box.originY / scale,
+                    width: box.width / scale,
+                    height: box.height / scale
+                };
+            const mappedBox = clampBox(rawMappedBox, fullW, fullH);
+
+            const mappedKeypoints = det.keypoints ? det.keypoints.map(kp => {
+                if (kp.x <= 1 && kp.y <= 1) {
+                    return { ...kp, x: srcX + kp.x * srcW, y: srcY + kp.y * srcH };
+                }
+                return { ...kp, x: srcX + kp.x / scale, y: srcY + kp.y / scale };
+            }) : null;
+
+            return cloneDetectionWithBox(det, mappedBox, mappedKeypoints, {
+                _gridRow: row,
+                _gridCol: col,
+                _tileScale: scale,
+                _zone: zone?.name || 'middle',
+                _zoneLabel: zone?.label || '中区',
+                _source: 'tile'
+            });
+        }
+
+        function getGridTiles(fullW, fullH) {
+            const baseTileW = fullW / GRID_COLS;
+            const baseTileH = fullH / GRID_ROWS;
+            const overlapX = baseTileW * GRID_OVERLAP_RATIO;
+            const overlapY = baseTileH * GRID_OVERLAP_RATIO;
+            const tiles = [];
+
+            for (let row = 0; row < GRID_ROWS; row++) {
+                for (let col = 0; col < GRID_COLS; col++) {
+                    const rawX = col * baseTileW - overlapX;
+                    const rawY = row * baseTileH - overlapY;
+                    const rawW = baseTileW + overlapX * 2;
+                    const rawH = baseTileH + overlapY * 2;
+                    const srcX = Math.max(0, Math.floor(rawX));
+                    const srcY = Math.max(0, Math.floor(rawY));
+                    const srcRight = Math.min(fullW, Math.ceil(rawX + rawW));
+                    const srcBottom = Math.min(fullH, Math.ceil(rawY + rawH));
+                    tiles.push({
+                        row,
+                        col,
+                        srcX,
+                        srcY,
+                        srcW: Math.max(1, srcRight - srcX),
+                        srcH: Math.max(1, srcBottom - srcY)
+                    });
+                }
+            }
+
+            return tiles;
+        }
+
+        function getBalancedTilesThisCycle(tiles) {
+            const tilesByRow = Array.from({ length: GRID_ROWS }, () => []);
+            tiles.forEach(tile => {
+                if (tilesByRow[tile.row]) tilesByRow[tile.row].push(tile);
+            });
+            tilesByRow.forEach(rowTiles => rowTiles.sort((a, b) => a.col - b.col));
+
+            const colsPerCycle = Math.max(1, Math.ceil(GRID_TILES_PER_CYCLE / GRID_ROWS));
+            const selected = [];
+
+            for (let colOffset = 0; colOffset < colsPerCycle && selected.length < GRID_TILES_PER_CYCLE; colOffset++) {
+                const col = (gridTileCursor + colOffset) % GRID_COLS;
+                for (let row = 0; row < GRID_ROWS && selected.length < GRID_TILES_PER_CYCLE; row++) {
+                    const rowTiles = tilesByRow[row];
+                    if (!rowTiles.length) continue;
+                    selected.push(rowTiles.find(tile => tile.col === col) || rowTiles[col % rowTiles.length]);
+                }
+            }
+
+            gridTileCursor = (gridTileCursor + colsPerCycle) % GRID_COLS;
+            return selected;
+        }
+
+        // ---- 大教室模式：全图 + 重叠分块 + 放大检测 ----
+        async function detectGrid(now) {
+            const fullW = video.videoWidth;
+            const fullH = video.videoHeight;
+            if (!fullW || !fullH) return [];
+
+            // 1) video → 全幅 canvas
+            const fullCanvas = videoToCanvas(frameCanvas, frameCtx);
+
+            const allDetections = [];
+            const tiles = getGridTiles(fullW, fullH);
+
+            // 全图检测低频跑，补近处/大脸；分块检测轮询跑，避免一次处理 12 个 tile 卡崩。
+            if (gridCycleCount % 4 === 0) {
+                const fullResult = await detectOnCanvas(fullCanvas);
+                const fullDetections = [];
+                if (fullResult.detections) {
+                    fullResult.detections.forEach(det => {
+                        const box = clampBox({ ...det.boundingBox }, fullW, fullH);
+                        const zone = getDepthZoneForBox(box, fullH);
+                        fullDetections.push(cloneDetectionWithBox(det, box, det.keypoints, {
+                            _source: 'full',
+                            _seenAt: now,
+                            _zone: zone.name,
+                            _zoneLabel: zone.label
+                        }));
+                    });
+                }
+                gridTileDetectionCache.set('full', { updatedAt: now, detections: fullDetections });
+            }
+
+            const tilesThisCycle = getBalancedTilesThisCycle(tiles);
+            gridCycleCount++;
+
+            // 2) 逐步分块放大检测。小脸会在 tile 内变大，远景监控更容易检出。
+            for (const tile of tilesThisCycle) {
+                const zone = getDepthZoneForTile(tile, fullH);
+                const scale = Math.min(zone.scale, GRID_MAX_TILE_SIDE / Math.max(tile.srcW, tile.srcH));
+                const scaledW = Math.max(1, Math.round(tile.srcW * scale));
+                const scaledH = Math.max(1, Math.round(tile.srcH * scale));
+                resizeCanvasIfNeeded(tileCanvas, scaledW, scaledH);
+                tileCtx.imageSmoothingEnabled = true;
+                tileCtx.imageSmoothingQuality = 'medium';
+                tileCtx.drawImage(fullCanvas, tile.srcX, tile.srcY, tile.srcW, tile.srcH, 0, 0, scaledW, scaledH);
+
+                const result = await detectOnCanvas(tileCanvas);
+                const tileDetections = [];
+                if (result.detections) {
+                    for (const det of result.detections) {
+                        tileDetections.push({
+                            ...mapTileDetection(det, tile.srcX, tile.srcY, tile.srcW, tile.srcH, scale, tile.row, tile.col, zone, fullW, fullH),
+                            _seenAt: now
+                        });
+                    }
+                }
+                gridTileDetectionCache.set(`tile-${tile.row}-${tile.col}`, {
+                    updatedAt: now,
+                    detections: tileDetections
+                });
+            }
+
+            gridTileDetectionCache.forEach((bucket, key) => {
+                if (now - bucket.updatedAt > GRID_RESULT_TTL_MS) {
+                    gridTileDetectionCache.delete(key);
+                    return;
+                }
+                allDetections.push(...bucket.detections);
+            });
+
+            // 3) 去重：合并所有 tile 的最新结果。每个 tile 被重算时会替换旧结果，不再叠残影框。
+            return mergeDetections(allDetections);
+        }
+
+        /*
+        async function detectGridFullScanForReference() {
+            // 保留原始全量扫描思路供调参参考。大教室人数多时不要每轮调用它，
+            // 否则 12 个放大 tile + Pose 很容易把浏览器打到 FPS=1。
+            const fullW = video.videoWidth;
+            const fullH = video.videoHeight;
+            if (!fullW || !fullH) return [];
+
+            const fullCanvas = document.createElement('canvas');
+            const fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
+            fullCanvas.width = fullW;
+            fullCanvas.height = fullH;
+            fullCtx.drawImage(video, 0, 0);
+
+            const allDetections = [];
+            const fullResult = await detectOnCanvas(fullCanvas);
+            if (fullResult.detections) {
+                fullResult.detections.forEach(det => {
+                    allDetections.push(cloneDetectionWithBox(det, { ...det.boundingBox }, det.keypoints, { _source: 'full' }));
+                });
+            }
+
+            for (const tile of getGridTiles(fullW, fullH)) {
+                const scale = Math.min(GRID_FACE_SCALE, GRID_MAX_TILE_SIDE / Math.max(tile.srcW, tile.srcH));
+                const scaledW = Math.max(1, Math.round(tile.srcW * scale));
+                const scaledH = Math.max(1, Math.round(tile.srcH * scale));
+                const tileCanvas = document.createElement('canvas');
+                tileCanvas.width = scaledW;
+                tileCanvas.height = scaledH;
+                const tileCtx = tileCanvas.getContext('2d', { willReadFrequently: true });
+                tileCtx.imageSmoothingEnabled = true;
+                tileCtx.imageSmoothingQuality = 'high';
+                tileCtx.drawImage(fullCanvas, tile.srcX, tile.srcY, tile.srcW, tile.srcH, 0, 0, scaledW, scaledH);
+
+                const result = await detectOnCanvas(tileCanvas);
+                if (result.detections) {
+                    for (const det of result.detections) {
+                        allDetections.push(mapTileDetection(det, tile.srcX, tile.srcY, tile.srcW, tile.srcH, scale, tile.row, tile.col));
+                    }
+                }
+            }
+
+            // 3) 去重：合并高度重叠的框
+            return mergeDetections(allDetections);
+        }
+        */
+
+        function mergeDetections(detections) {
+            if (detections.length <= 1) return detections;
+
+            // 优先保留更新、更可信的框；旧 tile 结果只作为补盲，不能长期压住新位置。
+            detections.sort((a, b) => {
+                const sa = a.categories?.[0]?.score ?? 0;
+                const sb = b.categories?.[0]?.score ?? 0;
+                const ta = a._seenAt || 0;
+                const tb = b._seenAt || 0;
+                if (Math.abs(tb - ta) > 450) return tb - ta;
+                if (Math.abs(sb - sa) > 0.04) return sb - sa;
+                const areaA = (a.boundingBox?.width || 0) * (a.boundingBox?.height || 0);
+                const areaB = (b.boundingBox?.width || 0) * (b.boundingBox?.height || 0);
+                return areaB - areaA;
+            });
+
+            const merged = [];
+            const suppressed = new Set();
+
+            for (let i = 0; i < detections.length; i++) {
+                if (suppressed.has(i)) continue;
+                merged.push(detections[i]);
+                const boxA = detections[i].boundingBox;
+
+                for (let j = i + 1; j < detections.length; j++) {
+                    if (suppressed.has(j)) continue;
+                    const boxB = detections[j].boundingBox;
+
+                    // 计算 IoU
+                    const ax1 = boxA.originX, ay1 = boxA.originY;
+                    const ax2 = ax1 + boxA.width, ay2 = ay1 + boxA.height;
+                    const bx1 = boxB.originX, by1 = boxB.originY;
+                    const bx2 = bx1 + boxB.width, by2 = by1 + boxB.height;
+
+                    const interX = Math.max(0, Math.min(ax2, bx2) - Math.max(ax1, bx1));
+                    const interY = Math.max(0, Math.min(ay2, by2) - Math.max(ay1, by1));
+                    const interArea = interX * interY;
+                    const unionArea = boxA.width * boxA.height + boxB.width * boxB.height - interArea;
+                    const smallerArea = Math.min(boxA.width * boxA.height, boxB.width * boxB.height);
+
+                    const overlap = unionArea > 0 ? interArea / unionArea : 0;
+                    const containment = smallerArea > 0 ? interArea / smallerArea : 0;
+                    const areaA = boxA.width * boxA.height;
+                    const areaB = boxB.width * boxB.height;
+                    const areaRatio = Math.min(areaA, areaB) / Math.max(areaA, areaB, 1);
+                    const dist = centerDistance(boxA, boxB);
+                    const maxSide = Math.max(boxA.width, boxA.height, boxB.width, boxB.height);
+                    const dynamicCenterLimit = Math.max(DUP_MIN_CENTER_DISTANCE, maxSide * DUP_CENTER_MATCH_RATIO);
+                    const duplicateByCenter = dist <= dynamicCenterLimit && areaRatio >= 0.36;
+
+                    if (overlap > 0.30 || containment > 0.72 || duplicateByCenter) {
+                        suppressed.add(j);
+                    }
+                }
+            }
+
+            return merged.slice(0, MAX_FACE_TRACKS * 2);
+        }
+
+        // ========== 头部姿态估计（Face Landmarker） ==========
+        function radToDeg(rad) {
+            return rad * 180 / Math.PI;
+        }
+
+        function getMatrixData(matrix) {
+            if (!matrix) return null;
+            if (Array.isArray(matrix)) return matrix;
+            if (matrix.data) return Array.from(matrix.data);
+            if (matrix.matrix) return Array.from(matrix.matrix);
+            return null;
+        }
+
+        function estimateHeadPoseFromMatrix(matrix) {
+            const m = getMatrixData(matrix);
+            if (!m || m.length < 16) return null;
+
+            // MediaPipe facial transformation matrix is treated as row-major 4x4.
+            // These Euler angles are used as a practical classroom-state signal,
+            // not as a calibrated medical/biometric head-pose measurement.
+            const r00 = m[0], r01 = m[1], r02 = m[2];
+            const r10 = m[4], r11 = m[5], r12 = m[6];
+            const r20 = m[8], r21 = m[9], r22 = m[10];
+
+            const pitch = radToDeg(Math.atan2(-r21, r22));
+            const yaw = radToDeg(Math.atan2(r20, Math.sqrt(r21 * r21 + r22 * r22)));
+            const roll = radToDeg(Math.atan2(-r10, r00));
+
+            if (![pitch, yaw, roll].every(Number.isFinite)) return null;
+
+            let state = 'normal';
+            if (pitch > 18) state = 'down';
+            else if (pitch < -16) state = 'up';
+            else if (Math.abs(yaw) > 32) state = 'side';
+
+            return {
+                source: 'face-matrix',
+                pitch: Number(pitch.toFixed(1)),
+                yaw: Number(yaw.toFixed(1)),
+                roll: Number(roll.toFixed(1)),
+                state,
+                label: { down: '看桌面', up: '抬头', side: '侧脸', normal: '正常' }[state],
+                confidence: Math.max(0, Math.min(1, 1 - Math.min(Math.abs(roll), 45) / 90))
+            };
+        }
+
+        function estimateHeadPoseFromLandmarks(landmarks, matrix) {
+            const matrixPose = estimateHeadPoseFromMatrix(matrix);
+
+            if (!landmarks || landmarks.length < 264) return null;
+
+            const nose = landmarks[LM_NOSE_TIP];
+            const forehead = landmarks[LM_FOREHEAD];
+            const chin = landmarks[LM_CHIN];
+            const leftEye = landmarks[LM_LEFT_EYE];
+            const rightEye = landmarks[LM_RIGHT_EYE];
+
+            if (!nose || !forehead || !chin || !leftEye || !rightEye) return null;
+
+            // 眼中心
+            const eyeMidY = (leftEye.y + rightEye.y) / 2;
+
+            // pitch 比率：鼻尖相对于眼-下巴的位置
+            // 正常 ≈0.43，低头时鼻子靠近眼睛(↓)，抬头时鼻子远离(↑)
+            const eyeToChin = chin.y - eyeMidY;
+            const eyeToNose = nose.y - eyeMidY;
+            const pitchRatio = eyeToChin > 0 ? eyeToNose / eyeToChin : 0;
+
+            // yaw 估计：鼻尖水平偏移 vs 眼中心
+            const eyeMidX = (leftEye.x + rightEye.x) / 2;
+            const noseOffsetX = nose.x - eyeMidX;
+            const eyeWidth = Math.abs(rightEye.x - leftEye.x);
+            const yawRatio = eyeWidth > 0 ? noseOffsetX / eyeWidth : 0;
+
+            let landmarkState;
+            if (pitchRatio < 0.33) landmarkState = 'down';
+            else if (pitchRatio > 0.52) landmarkState = 'up';
+            else if (Math.abs(yawRatio) > 0.18) landmarkState = 'side';
+            else landmarkState = 'normal';
+
+            const landmarkPose = {
+                source: 'face-landmarks-2d',
+                pitchRatio: Number(pitchRatio.toFixed(2)),
+                yawRatio: Number(yawRatio.toFixed(2)),
+                state: landmarkState,
+                label: { down: '看桌面', up: '抬头', side: '侧脸', normal: '正常' }[landmarkState],
+                confidence: 0.65
+            };
+
+            if (!matrixPose) return landmarkPose;
+
+            // Prefer the transformation matrix for clear faces. If the matrix is neutral
+            // but the 2D geometry strongly says side/down, keep the stronger warning.
+            if (matrixPose.state === 'normal' && landmarkPose.state !== 'normal') {
+                return { ...landmarkPose, matrix: matrixPose };
+            }
+            return { ...matrixPose, fallback: landmarkPose };
+        }
+
+        // Face Landmarker 辅助（仅可靠人脸使用）
+        async function runFaceLandmarkerDirect(sourceCanvas, faceBox) {
+            if (!faceLandmarker) return null;
+            const fx = Math.max(0, Math.floor(faceBox.originX));
+            const fy = Math.max(0, Math.floor(faceBox.originY));
+            const fw = Math.ceil(faceBox.width), fh = Math.ceil(faceBox.height);
+            resizeCanvasIfNeeded(faceCropCanvas, fw, fh);
+            faceCropCtx.drawImage(sourceCanvas, fx, fy, fw, fh, 0, 0, fw, fh);
+            try {
+                const r = faceLandmarker.detect(faceCropCanvas);
+                if (r.faceLandmarks && r.faceLandmarks.length > 0) {
+                    const matrix = r.facialTransformationMatrixes?.[0] || r.facialTransformationMatrixes?.[0]?.data;
+                    return estimateHeadPoseFromLandmarks(r.faceLandmarks[0], matrix);
+                }
+            } catch (e) {}
+            return null;
+        }
+
+        // ========== Pose Landmarker：全帧人体姿态 → 匹配到人 ==========
+        async function detectPoses(sourceCanvas) {
+            if (!poseLandmarker) return [];
+            try {
+                const result = poseLandmarker.detect(sourceCanvas);
+                return result.landmarks || []; // Array<NormalizedLandmark[]>, 每人一组33点
+            } catch (e) { return []; }
+        }
+
+        function mapTilePose(pose, tile, fullW, fullH) {
+            return pose.map(kp => ({
+                ...kp,
+                x: (tile.srcX + kp.x * tile.srcW) / fullW,
+                y: (tile.srcY + kp.y * tile.srcH) / fullH
+            }));
+        }
+
+        function poseCenter(pose) {
+            const lSh = pose[11], rSh = pose[12], nose = pose[0], lHip = pose[23], rHip = pose[24];
+            const points = [lSh, rSh, nose, lHip, rHip].filter(Boolean);
+            if (points.length === 0) return null;
+            return {
+                x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+                y: points.reduce((sum, p) => sum + p.y, 0) / points.length
+            };
+        }
+
+        function poseScore(pose) {
+            return [0, 2, 5, 11, 12, 23, 24]
+                .map(i => pose[i])
+                .filter(Boolean)
+                .reduce((sum, kp) => sum + (kp.visibility ?? 0.45), 0);
+        }
+
+        function mergePoses(poses, fullW, fullH) {
+            const sorted = poses.slice().sort((a, b) => poseScore(b) - poseScore(a));
+            const merged = [];
+            for (const pose of sorted) {
+                const center = poseCenter(pose);
+                if (!center) continue;
+                const duplicate = merged.some(existing => {
+                    const other = poseCenter(existing);
+                    if (!other) return false;
+                    const dx = (center.x - other.x) * fullW;
+                    const dy = (center.y - other.y) * fullH;
+                    return Math.hypot(dx, dy) < Math.max(28, fullW * 0.025);
+                });
+                if (!duplicate) merged.push(pose);
+            }
+            return merged;
+        }
+
+        async function detectPosesGrid(sourceCanvas) {
+            const fullW = sourceCanvas.width;
+            const fullH = sourceCanvas.height;
+            const poses = [];
+
+            poses.push(...await detectPoses(sourceCanvas));
+
+            for (const tile of getGridTiles(fullW, fullH)) {
+                const scale = Math.min(GRID_POSE_SCALE, GRID_MAX_TILE_SIDE / Math.max(tile.srcW, tile.srcH));
+                const scaledW = Math.max(1, Math.round(tile.srcW * scale));
+                const scaledH = Math.max(1, Math.round(tile.srcH * scale));
+                const tileCanvas = document.createElement('canvas');
+                tileCanvas.width = scaledW;
+                tileCanvas.height = scaledH;
+                const tileCtx = tileCanvas.getContext('2d', { willReadFrequently: true });
+                tileCtx.imageSmoothingEnabled = true;
+                tileCtx.imageSmoothingQuality = 'high';
+                tileCtx.drawImage(sourceCanvas, tile.srcX, tile.srcY, tile.srcW, tile.srcH, 0, 0, scaledW, scaledH);
+
+                const tilePoses = await detectPoses(tileCanvas);
+                tilePoses.forEach(pose => poses.push(mapTilePose(pose, tile, fullW, fullH)));
+            }
+
+            return mergePoses(poses, fullW, fullH);
+        }
+
+        function shouldRefreshPoses(now) {
+            const interval = detectionMode === 'classroom' ? POSE_DETECT_INTERVAL_MS : 300;
+            return now - lastPoseDetectTime >= interval;
+        }
+
+        async function getCachedPoses(sourceCanvas, now) {
+            const interval = detectionMode === 'classroom' ? POSE_DETECT_INTERVAL_MS : 300;
+            if (now - lastPoseDetectTime >= interval) {
+                lastPoseDetectTime = now;
+                // 大教室人数多时，Pose 分块检测会非常重。这里保留全图低频 Pose
+                // 作为状态辅助；人数检测仍由 rolling grid face detections 承担。
+                lastPoses = await detectPoses(sourceCanvas);
+                lastPosesTimestamp = now;
+                return lastPoses;
+            }
+            if (now - lastPosesTimestamp <= CACHE_MAX_AGE_MS) return lastPoses;
+            return [];
+        }
+
+        function matchFaceToPose(faceBox, poses, canvasW, canvasH) {
+            const fx = faceBox.originX + faceBox.width / 2;
+            const fy = faceBox.originY + faceBox.height;
+            let bestDist = Infinity, bestPose = null;
+
+            for (const lm of poses) {
+                // 用鼻子(0)或肩中点(11+12)判断人体中心
+                const nose = lm[0];
+                const lSh = lm[11], rSh = lm[12];
+                let cx, cy;
+                // visibility 可能 undefined → 视为可见
+                const vis = (kp) => kp && (kp.visibility === undefined || kp.visibility > 0.1);
+                if (vis(lSh) && vis(rSh)) {
+                    cx = ((lSh.x + rSh.x) / 2) * canvasW;
+                    cy = ((lSh.y + rSh.y) / 2) * canvasH;
+                } else if (vis(nose)) {
+                    cx = nose.x * canvasW;
+                    cy = nose.y * canvasH;
+                } else continue;
+
+                const dist = Math.hypot(cx - fx, cy - fy);
+                if (dist < bestDist) { bestDist = dist; bestPose = lm; }
+            }
+            // 距离必须合理（< 脸宽的 3 倍）
+            if (bestDist < faceBox.width * 5) return bestPose;
+            return null;
+        }
+
+        function derivePoseState(poseLandmarks, canvasW, canvasH) {
+            if (!poseLandmarks || poseLandmarks.length < 13) return null;
+
+            const nose = poseLandmarks[0];
+            const lEye = poseLandmarks[2];  // left eye
+            const rEye = poseLandmarks[5];  // right eye
+            const lEar = poseLandmarks[7];
+            const rEar = poseLandmarks[8];
+            const lSh = poseLandmarks[11];
+            const rSh = poseLandmarks[12];
+
+            const vis = (kp, th) => kp && (kp.visibility === undefined || kp.visibility > th);
+            const hasHead = vis(nose, 0.1);
+            const hasEyes = vis(lEye, 0.05) && vis(rEye, 0.05);
+            const hasShoulders = vis(lSh, 0.1) && vis(rSh, 0.1);
+
+            if (!hasHead) {
+                if (hasShoulders) return { source: 'pose', state: 'sleep', label: '疑似睡觉', detail: '有身体但无头部', confidence: 0.55 };
+                return null;
+            }
+
+            if (!hasShoulders) return { source: 'pose', state: 'unknown', label: '无法判断', detail: '无肩部参考', confidence: 0.25 };
+
+            // 肩中点 Y
+            const midShY = (lSh.y + rSh.y) / 2;
+            const noseY = nose.y;
+            const eyeMidY = hasEyes ? (lEye.y + rEye.y) / 2 : noseY;
+            const shoulderWidth = Math.abs(rSh.x - lSh.x);
+            const headShoulderGap = midShY - eyeMidY;
+            const normalizedGap = shoulderWidth > 0 ? headShoulderGap / shoulderWidth : headShoulderGap;
+
+            // 头部在肩上方 → 抬头；鼻子接近/低于肩线 → 看桌面
+            const headAboveShoulders = normalizedGap > 0.22;
+            const noseNearShoulder = noseY > midShY - Math.max(0.02, shoulderWidth * 0.08);
+
+            if (headAboveShoulders && !noseNearShoulder) {
+                return {
+                    source: 'pose',
+                    state: 'up',
+                    label: '抬头',
+                    detail: `头肩距${normalizedGap.toFixed(2)}`,
+                    confidence: Math.min(0.9, 0.45 + normalizedGap)
+                };
+            }
+            if (noseNearShoulder) {
+                return {
+                    source: 'pose',
+                    state: 'down',
+                    label: '看桌面',
+                    detail: `鼻近肩线 gap=${normalizedGap.toFixed(2)}`,
+                    confidence: 0.65
+                };
+            }
+            const rel = noseY > midShY ? '低于' : '高于';
+            return { source: 'pose', state: 'unknown', label: '无法判断', detail: `鼻${rel}肩${Math.abs(noseY-midShY).toFixed(3)}`, confidence: 0.35 };
+        }
+
+        function poseToStudyState(poseState) {
+            if (!poseState) return '无法判断';
+            if (poseState.state === 'up') return '抬头';
+            if (poseState.state === 'down') return '看桌面';
+            if (poseState.state === 'sleep') return '疑似睡觉';
+            return '无法判断';
+        }
+
+        function poseAverageVisibility(poseLandmarks) {
+            if (!poseLandmarks || poseLandmarks.length === 0) return 0;
+            const points = [0, 2, 5, 7, 8, 11, 12, 23, 24]
+                .map(i => poseLandmarks[i])
+                .filter(Boolean);
+            if (points.length === 0) return 0;
+            return points.reduce((sum, p) => sum + (p.visibility ?? 0.5), 0) / points.length;
+        }
+
+        function buildPoseBox(poseLandmarks, canvasW, canvasH) {
+            if (!poseLandmarks || poseLandmarks.length < 13) return null;
+
+            const usable = [0, 2, 5, 7, 8, 11, 12, 23, 24]
+                .map(i => poseLandmarks[i])
+                .filter(p => p && (p.visibility === undefined || p.visibility > 0.08));
+
+            const lSh = poseLandmarks[11];
+            const rSh = poseLandmarks[12];
+            const hasShoulders = lSh && rSh &&
+                (lSh.visibility === undefined || lSh.visibility > 0.08) &&
+                (rSh.visibility === undefined || rSh.visibility > 0.08);
+
+            if (usable.length < 2 && !hasShoulders) return null;
+
+            let xs = usable.map(p => p.x * canvasW);
+            let ys = usable.map(p => p.y * canvasH);
+
+            if (hasShoulders) {
+                const shoulderWidth = Math.max(24, Math.abs(rSh.x - lSh.x) * canvasW);
+                const midX = ((lSh.x + rSh.x) / 2) * canvasW;
+                const midY = ((lSh.y + rSh.y) / 2) * canvasH;
+                xs.push(midX - shoulderWidth * 0.65, midX + shoulderWidth * 0.65);
+                ys.push(midY - shoulderWidth * 1.25, midY + shoulderWidth * 0.35);
+            }
+
+            const minX = Math.max(0, Math.min(...xs));
+            const maxX = Math.min(canvasW, Math.max(...xs));
+            const minY = Math.max(0, Math.min(...ys));
+            const maxY = Math.min(canvasH, Math.max(...ys));
+            const pad = Math.max(8, (maxX - minX) * 0.18);
+
+            return {
+                originX: Math.max(0, minX - pad),
+                originY: Math.max(0, minY - pad),
+                width: Math.min(canvasW - Math.max(0, minX - pad), (maxX - minX) + pad * 2),
+                height: Math.min(canvasH - Math.max(0, minY - pad), (maxY - minY) + pad * 2)
+            };
+        }
+
+        // ========== 学习状态判断 ==========
+        function updateTrackStudyState(track, candidateState) {
+            // DEBUG：直接赋值，不做去抖
+            track.studyState = candidateState || '无法判断';
+            track.studyStateCandidate = candidateState;
+            track.studyStateSince = Date.now();
+
+            // === 去抖逻辑（暂时禁用，调试完恢复） ===
+            // const now = Date.now();
+            // const stableMs = {
+            //     '抬头': 1000,
+            //     '看桌面': 1500,
+            //     '疑似睡觉': 5000,
+            //     '无法判断': 1000
+            // };
+            // if (!track.studyStateCandidate || track.studyStateCandidate !== candidateState) {
+            //     track.studyStateCandidate = candidateState;
+            //     track.studyStateSince = now;
+            //     track.studyState = track.studyState || '无法判断';
+            //     return;
+            // }
+            // if (now - track.studyStateSince >= (stableMs[candidateState] || 1000)) {
+            //     track.studyState = candidateState;
+            // }
+        }
+
+        function deriveCandidateState(track) {
+            // 清晰人脸优先使用 Face Landmarker 的角度/几何判断。
+            if (track.headPose) {
+                if (track.headPose.state === 'up' || track.headPose.state === 'normal') return '抬头';
+                if (track.headPose.state === 'down') return '看桌面';
+                if (track.headPose.state === 'side') return '无法判断';
+            }
+
+            // 无清晰脸时，使用 PoseLandmarker 的头肩关系判断。
+            if (track.poseState) {
+                return poseToStudyState(track.poseState);
+            }
+
+            // 可靠人脸但角度暂时不可用 → 保守视为抬头。
+            if (track._class === 'reliable') return '抬头';
+
+            return '无法判断';
+        }
+
+        // ========== 人脸跟踪 + 平滑 + 三层过滤 ==========
+        function iou(boxA, boxB) {
+            const ax1 = boxA.originX, ay1 = boxA.originY;
+            const ax2 = ax1 + boxA.width, ay2 = ay1 + boxA.height;
+            const bx1 = boxB.originX, by1 = boxB.originY;
+            const bx2 = bx1 + boxB.width, by2 = by1 + boxB.height;
+            const interX = Math.max(0, Math.min(ax2, bx2) - Math.max(ax1, bx1));
+            const interY = Math.max(0, Math.min(ay2, by2) - Math.max(ay1, by1));
+            const inter = interX * interY;
+            const union = boxA.width * boxA.height + boxB.width * boxB.height - inter;
+            return union > 0 ? inter / union : 0;
+        }
+
+        function normalizeStudyState(state) {
+            return STUDY_STATES.includes(state) ? state : '无法判断';
+        }
+
+        function createDurationBucket() {
+            return STUDY_STATES.reduce((bucket, state) => {
+                bucket[state] = 0;
+                return bucket;
+            }, {});
+        }
+
+        function boxCenter(box) {
+            return {
+                x: box.originX + box.width / 2,
+                y: box.originY + box.height / 2
+            };
+        }
+
+        function centerDistance(boxA, boxB) {
+            const a = boxCenter(boxA);
+            const b = boxCenter(boxB);
+            return Math.hypot(a.x - b.x, a.y - b.y);
+        }
+
+        function boxArea(box) {
+            return Math.max(1, box.width * box.height);
+        }
+
+        function faceTrackMatchScore(oldBox, newBox) {
+            const overlap = iou(oldBox, newBox);
+            const dist = centerDistance(oldBox, newBox);
+            const maxSide = Math.max(oldBox.width, oldBox.height, newBox.width, newBox.height);
+            const centerLimit = Math.max(TRACK_MIN_CENTER_DISTANCE, maxSide * TRACK_CENTER_MATCH_RATIO);
+            const centerScore = Math.max(0, 1 - dist / centerLimit);
+            const areaRatio = Math.min(boxArea(oldBox), boxArea(newBox)) / Math.max(boxArea(oldBox), boxArea(newBox));
+
+            // 既不重叠、中心又离得远，就不要强行合并，避免把邻座同学算成同一个人。
+            if (overlap < 0.08 && centerScore < 0.22) return 0;
+            if (areaRatio < 0.25 && overlap < 0.18) return 0;
+            return overlap * 1.8 + centerScore * 0.9 + areaRatio * 0.25;
+        }
+
+        function addVisibleDuration(track, nowMs) {
+            if (!track || !track.lastUpdatedAt) return;
+            const elapsed = Math.max(0, nowMs - track.lastUpdatedAt);
+            const state = normalizeStudyState(track.currentState);
+            track.durations[state] += elapsed;
+            track.visibleMs += elapsed;
+            track.lastUpdatedAt = nowMs;
+        }
+
+        function getProjectedDurations(track, nowMs) {
+            const durations = { ...track.durations };
+            let visibleMs = track.visibleMs;
+            if (track.active && track.lastUpdatedAt) {
+                const elapsed = Math.max(0, nowMs - track.lastUpdatedAt);
+                const state = normalizeStudyState(track.currentState);
+                durations[state] += elapsed;
+                visibleMs += elapsed;
+            }
+            return { durations, visibleMs };
+        }
+
+        function findAnalyticsMatch(face, usedTrackIds, videoW, videoH, nowMs) {
+            let best = null;
+            let bestScore = 0;
+            const minFrameSide = Math.min(videoW || 640, videoH || 480);
+
+            for (const track of analyticsTracks) {
+                if (usedTrackIds.has(track.id)) continue;
+                const gapMs = nowMs - track.lastSeenAt;
+                if (gapMs > ANALYTICS_TRACK_TTL_MS) continue;
+
+                const overlap = iou(track.box, face.box);
+                const dist = centerDistance(track.box, face.box);
+                const dynamicDistance = Math.max(
+                    70,
+                    minFrameSide * 0.08,
+                    Math.max(track.box.width, track.box.height, face.box.width, face.box.height) * 1.2
+                );
+                if (overlap < ANALYTICS_MATCH_IOU && dist > dynamicDistance) continue;
+
+                const distanceScore = Math.max(0, 1 - dist / dynamicDistance);
+                const score = overlap * 2 + distanceScore;
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = track;
+                }
+            }
+            return best;
+        }
+
+        function updateAnalytics(faces, nowMs, videoW, videoH) {
+            const usedTrackIds = new Set();
+
+            faces.forEach((face, index) => {
+                if (!face.box) return;
+                const currentState = normalizeStudyState(face.studyState);
+                let track = findAnalyticsMatch(face, usedTrackIds, videoW, videoH, nowMs);
+
+                if (!track) {
+                    track = {
+                        id: nextAnalyticsId++,
+                        box: { ...face.box },
+                        firstSeenAt: nowMs,
+                        lastSeenAt: nowMs,
+                        lastUpdatedAt: nowMs,
+                        stateChangedAt: nowMs,
+                        currentState,
+                        durations: createDurationBucket(),
+                        visibleMs: 0,
+                        active: true,
+                        source: face.source || (face._class === 'pose' ? 'pose-only' : 'face'),
+                        detectionClass: face._class || 'unknown',
+                        confidence: face.score ?? 0
+                    };
+                    analyticsTracks.push(track);
+                } else {
+                    addVisibleDuration(track, nowMs);
+                    if (track.currentState !== currentState) {
+                        track.currentState = currentState;
+                        track.stateChangedAt = nowMs;
+                    }
+                    track.box = smoothBoxAdaptive(track.box, face.box);
+                    track.lastSeenAt = nowMs;
+                    track.active = true;
+                    track.source = face.source || (face._class === 'pose' ? 'pose-only' : 'face');
+                    track.detectionClass = face._class || 'unknown';
+                    track.confidence = face.score ?? track.confidence;
+                }
+
+                usedTrackIds.add(track.id);
+                face.analyticsId = track.id;
+                face.analyticsTrack = track;
+                face.displayOrder = index + 1;
+            });
+
+            analyticsTracks.forEach(track => {
+                if (!usedTrackIds.has(track.id)) track.active = false;
+            });
+            latestAnalyticsSnapshot = buildAnalyticsSnapshot(nowMs);
+            if (nowMs - lastAnalyticsRenderAt >= ANALYTICS_RENDER_INTERVAL_MS) {
+                lastAnalyticsRenderAt = nowMs;
+                renderAnalytics(latestAnalyticsSnapshot);
+            }
+            return latestAnalyticsSnapshot;
+        }
+
+        function formatDuration(ms) {
+            const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            if (minutes <= 0) return `${seconds}秒`;
+            return `${minutes}分${String(seconds).padStart(2, '0')}秒`;
+        }
+
+        function buildAnalyticsSnapshot(nowMs) {
+            const activeTracks = analyticsTracks.filter(track => track.active);
+            const summary = {
+                total: activeTracks.length,
+                up: activeTracks.filter(track => track.currentState === '抬头').length,
+                desk: activeTracks.filter(track => track.currentState === '看桌面').length,
+                sleep: activeTracks.filter(track => track.currentState === '疑似睡觉').length,
+                unknown: activeTracks.filter(track => track.currentState === '无法判断').length,
+                totalSeen: analyticsTracks.length
+            };
+
+            const people = analyticsTracks
+                .slice()
+                .sort((a, b) => {
+                    if (a.active !== b.active) return a.active ? -1 : 1;
+                    return a.id - b.id;
+                })
+                .map(track => {
+                    const projected = getProjectedDurations(track, nowMs);
+                    return {
+                        id: `person-${track.id}`,
+                        active: track.active,
+                        state: track.currentState,
+                        source: track.source,
+                        detectionClass: track.detectionClass,
+                        confidence: Number((track.confidence ?? 0).toFixed(3)),
+                        visibleMs: Math.round(projected.visibleMs),
+                        durations: Object.fromEntries(
+                            STUDY_STATES.map(state => [state, Math.round(projected.durations[state] || 0)])
+                        ),
+                        stateDurationMs: Math.round(nowMs - track.stateChangedAt),
+                        firstSeenAtMs: Math.round(track.firstSeenAt),
+                        lastSeenAtMs: Math.round(track.lastSeenAt),
+                        box: {
+                            x: Math.round(track.box.originX),
+                            y: Math.round(track.box.originY),
+                            width: Math.round(track.box.width),
+                            height: Math.round(track.box.height)
+                        }
+                    };
+                });
+
+            return {
+                generatedAt: new Date().toISOString(),
+                summary,
+                people
+            };
+        }
+
+        function renderAnalytics(snapshot) {
+            if (!snapshot) return;
+            const s = snapshot.summary;
+            stateSummaryEl.innerHTML = [
+                `<span class="analytics-chip">当前：${s.total} 人</span>`,
+                `<span class="analytics-chip">抬头：${s.up}</span>`,
+                `<span class="analytics-chip">看桌面：${s.desk}</span>`,
+                `<span class="analytics-chip">疑似睡觉：${s.sleep}</span>`,
+                `<span class="analytics-chip">无法判断：${s.unknown}</span>`,
+                `<span class="analytics-chip">累计：${s.totalSeen} 人</span>`
+            ].join('');
+
+            if (snapshot.people.length === 0) {
+                personStatsBody.innerHTML = '<tr><td colspan="7" class="muted">等待检测数据...</td></tr>';
+                return;
+            }
+
+            const visiblePeople = snapshot.people.slice(0, ANALYTICS_TABLE_MAX_ROWS);
+            const extraCount = Math.max(0, snapshot.people.length - visiblePeople.length);
+
+            personStatsBody.innerHTML = visiblePeople.map(person => {
+                const status = person.active ? person.state : `${person.state} / 暂离`;
+                return `
+                    <tr>
+                        <td>${person.id}</td>
+                        <td>${status}</td>
+                        <td>${formatDuration(person.durations['抬头'])}</td>
+                        <td>${formatDuration(person.durations['看桌面'])}</td>
+                        <td>${formatDuration(person.durations['疑似睡觉'])}</td>
+                        <td>${formatDuration(person.durations['无法判断'])}</td>
+                        <td>${formatDuration(person.visibleMs)}</td>
+                    </tr>
+                `;
+            }).join('') + (extraCount > 0
+                ? `<tr><td colspan="7" class="muted">还有 ${extraCount} 人未在表格展示，统计和 JSON 仍包含全部人数。</td></tr>`
+                : '');
+        }
+
+        function clampBox(box, vw, vh) {
+            const x = Math.max(0, Math.min(vw, box.originX));
+            const y = Math.max(0, Math.min(vh, box.originY));
+            const r = Math.max(x, Math.min(vw, box.originX + box.width));
+            const b = Math.max(y, Math.min(vh, box.originY + box.height));
+            return { originX: x, originY: y, width: Math.max(1, r - x), height: Math.max(1, b - y) };
+        }
+
+        function isBoxInIgnoreZone(box, videoW = video.videoWidth || canvas.width || 1, videoH = video.videoHeight || canvas.height || 1) {
+            const centerX = (box.originX + box.width / 2) / Math.max(videoW, 1);
+            const centerY = (box.originY + box.height / 2) / Math.max(videoH, 1);
+            return FACE_IGNORE_ZONES.some(zone =>
+                centerX >= zone.x &&
+                centerX <= zone.x + zone.width &&
+                centerY >= zone.y &&
+                centerY <= zone.y + zone.height
+            );
+        }
+
+        function smoothBoxAdaptive(oldBox, newBox) {
+            if (!oldBox) return { originX: newBox.originX, originY: newBox.originY, width: newBox.width, height: newBox.height };
+            const oldArea = oldBox.width * oldBox.height;
+            const newArea = newBox.width * newBox.height;
+            const areaRatio = Math.abs(newArea - oldArea) / Math.max(oldArea, 1);
+            // 人靠近/远离时面积变化大，直接使用新框
+            if (areaRatio > 0.35) return { originX: newBox.originX, originY: newBox.originY, width: newBox.width, height: newBox.height };
+            return {
+                originX: oldBox.originX * 0.55 + newBox.originX * 0.45,
+                originY: oldBox.originY * 0.55 + newBox.originY * 0.45,
+                width:   oldBox.width   * 0.15 + newBox.width   * 0.85,
+                height:  oldBox.height  * 0.15 + newBox.height  * 0.85,
+            };
+        }
+
+        function classifyDetection(box, score, zoneName = null) {
+            if (detectionMode === 'classroom' && isBoxInIgnoreZone(box)) return 'ignore';
+            const zone = zoneName
+                ? DEPTH_ZONES.find(z => z.name === zoneName)
+                : getDepthZoneForBox(box);
+            const t = getFaceThresholds(zone);
+            const ratio = box.width / Math.max(box.height, 1);
+            if (ratio < 0.58 || ratio > 1.62) return 'ignore';
+            if (box.width < t.minW || box.height < t.minH) return 'ignore';
+            if (score < t.minConf) return 'ignore';
+            if (box.width >= t.reliableW && box.height >= t.reliableH && score >= 0.5) return 'reliable';
+            return 'distant';
+        }
+
+        function matchDetections(rawDetections) {
+            const now = performance.now();
+
+            // 1) 过滤
+            const valid = [];
+            for (const det of rawDetections) {
+                const box = det.boundingBox;
+                const score = det.categories?.[0]?.score ?? 0;
+                const cls = classifyDetection(box, score, det._zone);
+                if (cls === 'ignore') continue;
+                valid.push({
+                    box: det.boundingBox,
+                    score,
+                    keypoints: det.keypoints || null,
+                    _class: cls,
+                    _zone: det._zone || getDepthZoneForBox(box).name,
+                    _zoneLabel: det._zoneLabel || getDepthZoneForBox(box).label
+                });
+            }
+
+            // 2) 匹配已有 track
+            const matched = new Set();
+            const updated = [];
+
+            for (const track of trackedFaces) {
+                let bestScore = 0.45;
+                let bestIdx = -1;
+                for (let i = 0; i < valid.length; i++) {
+                    if (matched.has(i)) continue;
+                    const matchScore = faceTrackMatchScore(track.box, valid[i].box);
+                    if (matchScore > bestScore) {
+                        bestScore = matchScore;
+                        bestIdx = i;
+                    }
+                }
+                if (bestIdx >= 0) {
+                    matched.add(bestIdx);
+                    const v = valid[bestIdx];
+                    track.box = smoothBoxAdaptive(track.box, v.box);
+                    track.score = v.score;
+                    track.keypoints = v.keypoints;
+                    track._class = v._class;
+                    track._zone = v._zone;
+                    track._zoneLabel = v._zoneLabel;
+                    track.confirmed = Math.min(track.confirmed + 1, CONFIRM_FRAMES);
+                    track.lost = 0;
+                    // 学习状态：每帧推导候选（DEBUG：直接赋值）
+                    const candidate = deriveCandidateState(track);
+                    updateTrackStudyState(track, candidate);
+                    // 调试日志
+                    if (performance.now() - debugLastLog >= 1000) {
+                        console.log(`  🧑 人脸${track.id}:`, {
+                            box: `${Math.round(track.box.width)}×${Math.round(track.box.height)}`,
+                            class: track._class,
+                            poseState: track.poseState ? track.poseState.label : 'null',
+                            poseDetail: track.poseState ? track.poseState.detail : '',
+                            headPose: track.headPose ? track.headPose.label : 'null',
+                            candidateState: candidate,
+                            finalState: track.studyState
+                        });
+                    }
+                    updated.push(track);
+                } else {
+                    track.lost++;
+                    if (track.lost <= LOST_FRAMES) updated.push(track);
+                }
+            }
+
+            // 3) 新建 track
+            for (let i = 0; i < valid.length; i++) {
+                if (matched.has(i)) continue;
+                const v = valid[i];
+                updated.push({
+                    id: nextFaceId++,
+                    box: { originX: v.box.originX, originY: v.box.originY, width: v.box.width, height: v.box.height },
+                    score: v.score,
+                    keypoints: v.keypoints,
+                    _class: v._class,
+                    _zone: v._zone,
+                    _zoneLabel: v._zoneLabel,
+                    confirmed: 1,
+                    lost: 0,
+                    studyState: '无法判断',
+                    studyStateCandidate: null,
+                    studyStateSince: Date.now(),
+                });
+            }
+
+            trackedFaces = updated;
+            return trackedFaces.filter(t => t.confirmed >= CONFIRM_FRAMES);
+        }
+
+        function matchYoloPersonDetections(rawDetections, videoW, videoH) {
+            const valid = rawDetections
+                .filter(det => isPlausibleYoloPerson(det, videoW, videoH))
+                .map(det => {
+                    const box = clampBox(det.boundingBox, videoW, videoH);
+                    const score = det.categories?.[0]?.score ?? 0;
+                    const stateResult = classifyPersonCropHeuristic(box, videoW, videoH);
+                    return {
+                        box,
+                        score,
+                        keypoints: null,
+                        _class: 'person',
+                        _zone: getDepthZoneForBox(box).name,
+                        _zoneLabel: getDepthZoneForBox(box).label,
+                        studyState: stateResult.state,
+                        stateConfidence: stateResult.confidence,
+                        classifier: stateResult.classifier
+                    };
+                })
+                .filter(v => !isBoxInIgnoreZone(v.box, videoW, videoH));
+
+            const matched = new Set();
+            const updated = [];
+
+            for (const track of trackedFaces) {
+                let bestScore = 0.35;
+                let bestIdx = -1;
+                for (let i = 0; i < valid.length; i++) {
+                    if (matched.has(i)) continue;
+                    const matchScore = faceTrackMatchScore(track.box, valid[i].box);
+                    if (matchScore > bestScore) {
+                        bestScore = matchScore;
+                        bestIdx = i;
+                    }
+                }
+
+                if (bestIdx >= 0) {
+                    matched.add(bestIdx);
+                    const v = valid[bestIdx];
+                    track.box = smoothBoxAdaptive(track.box, v.box);
+                    track.score = v.score;
+                    track.keypoints = null;
+                    track._class = 'person';
+                    track._zone = v._zone;
+                    track._zoneLabel = v._zoneLabel;
+                    track.stateConfidence = v.stateConfidence;
+                    track.classifier = v.classifier;
+                    track.poseLandmarks = null;
+                    track.poseState = null;
+                    track.headPose = null;
+                    track.confirmed = Math.min(track.confirmed + 1, CONFIRM_FRAMES);
+                    track.lost = 0;
+                    updateTrackStudyState(track, v.studyState);
+                    updated.push(track);
+                } else {
+                    track.lost++;
+                    if (track.lost <= LOST_FRAMES) updated.push(track);
+                }
+            }
+
+            for (let i = 0; i < valid.length; i++) {
+                if (matched.has(i)) continue;
+                const v = valid[i];
+                const track = {
+                    id: nextFaceId++,
+                    box: { originX: v.box.originX, originY: v.box.originY, width: v.box.width, height: v.box.height },
+                    score: v.score,
+                    keypoints: null,
+                    _class: 'person',
+                    _zone: v._zone,
+                    _zoneLabel: v._zoneLabel,
+                    stateConfidence: v.stateConfidence,
+                    classifier: v.classifier,
+                    confirmed: 1,
+                    lost: 0,
+                    studyState: v.studyState,
+                    studyStateCandidate: null,
+                    studyStateSince: Date.now(),
+                    poseLandmarks: null,
+                    poseState: null,
+                    headPose: null
+                };
+                updateTrackStudyState(track, v.studyState);
+                updated.push(track);
+            }
+
+            trackedFaces = updated;
+            return trackedFaces.filter(t => t.confirmed >= CONFIRM_FRAMES);
+        }
+
+        // ---- 绘制单个检测框（轻量：方案B 仅四角线） ----
+        function drawOneDetection(track, displayWidth) {
+            const box = track.box;
+            const x = box.originX;
+            const y = box.originY;
+            const w = box.width;
+            const h = box.height;
+            const score = track.score;
+            const tier = track._class || 'distant';
+            const isReliable = tier === 'reliable';
+            const isPoseOnly = tier === 'pose';
+            const isPerson = tier === 'person';
+
+            if (!showDetectionBox) return;
+
+            // 颜色：可靠人脸=红，远距离人脸=黄，版本四人体框=青蓝，仅人体姿态=蓝
+            const innerColor = isReliable
+                ? 'rgba(255, 38, 64, 0.95)'
+                : (isPerson ? 'rgba(0, 229, 255, 0.95)'
+                    : (isPoseOnly ? 'rgba(116, 185, 255, 0.95)' : 'rgba(255, 214, 10, 0.95)'));
+            const outerColor = 'rgba(0, 0, 0, 0.65)';
+
+            // 仅四角线（方案B），无完整矩形
+            const cornerLen = Math.max(14, Math.min(w, h) * 0.22);
+            ctx.lineCap = 'round';
+
+            function drawCornerSegment(cx, cy, dx, dy) {
+                const x1 = cx, y1 = cy + dy * cornerLen;
+                const x2 = cx, y2 = cy;
+                const x3 = cx + dx * cornerLen, y3 = cy;
+
+                // 外层暗色描边
+                ctx.strokeStyle = outerColor;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3);
+                ctx.stroke();
+
+                // 内层亮线
+                ctx.strokeStyle = innerColor;
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3);
+                ctx.stroke();
+            }
+
+            [
+                [x, y, 1, 1], [x + w, y, -1, 1],
+                [x, y + h, 1, -1], [x + w, y + h, -1, -1]
+            ].forEach(([cx, cy, dx, dy]) => drawCornerSegment(cx, cy, dx, dy));
+
+            // === 学习状态标签（右上角） ===
+            const stateColors = {
+                '抬头': 'rgba(0, 184, 148, 0.9)',
+                '看桌面': 'rgba(9, 132, 227, 0.9)',
+                '疑似睡觉': 'rgba(253, 126, 20, 0.9)',
+                '无法判断': 'rgba(99, 110, 114, 0.85)'
+            };
+            const stateLabel = track.studyState || '无法判断';
+            const stateText = track.analyticsId ? `P${track.analyticsId} ${stateLabel}` : stateLabel;
+            const stateColor = stateColors[stateLabel] || stateColors['无法判断'];
+
+            ctx.font = '10px sans-serif';
+            const stateTextW = ctx.measureText(stateText).width;
+            const stateH = 13, statePad = 2;
+            const stateX = x + w - stateTextW - statePad * 2;
+            const stateY = y - stateH - 4;
+
+            if (stateY > 0) {
+                ctx.fillStyle = stateColor;
+                ctx.fillRect(stateX, stateY, stateTextW + statePad * 2, stateH + statePad);
+                ctx.fillStyle = '#fff';
+                ctx.fillText(stateText, stateX + statePad, stateY + stateH - 2);
+            }
+
+            // 置信度标签
+            let label;
+            if (isPerson) {
+                label = `人体 ${stateLabel} ${(score * 100).toFixed(0)}%`;
+            } else if (isPoseOnly) {
+                label = `人体 ${(score * 100).toFixed(0)}%`;
+            } else if (isReliable && track.headPose) {
+                const poseText = track.headPose.pitch !== undefined
+                    ? `${track.headPose.label} p${track.headPose.pitch}°`
+                    : track.headPose.label;
+                label = `${poseText} ${(score * 100).toFixed(0)}%`;
+            } else if (isReliable) {
+                label = `${(score * 100).toFixed(0)}%`;
+            } else {
+                label = `远距 ${(score * 100).toFixed(0)}%`;
+            }
+
+            ctx.font = '11px sans-serif';
+            const textWidth = ctx.measureText(label).width;
+            const textHeight = 14;
+            const pad = 3;
+            const labelY = y - 6;
+
+            const bgColor = 'rgba(0, 0, 0, 0.65)';
+            const textColor = isPerson ? '#00e5ff' : (isPoseOnly ? '#74b9ff' : (isReliable ? '#ffffff' : '#ffd60a'));
+            const textX = x + pad;
+
+            if (labelY - textHeight > 0) {
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(x, labelY - textHeight, textWidth + pad * 2, textHeight + pad);
+                ctx.fillStyle = textColor;
+                ctx.fillText(label, textX, labelY - 3);
+            } else {
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(x, y + 1, textWidth + pad * 2, textHeight + pad);
+                ctx.fillStyle = textColor;
+                ctx.fillText(label, textX, y + textHeight - 1);
+            }
+
+            // 关键点：仅可靠人脸 + w/h ≥ 60px
+            if (detectionMode !== 'classroom' && isReliable && w >= 60 && h >= 60 && track.keypoints && track.keypoints.length > 0) {
+                track.keypoints.forEach((kp, idx) => {
+                    let kpX = kp.x, kpY = kp.y;
+                    if (kpX <= 1 && kpY <= 1 && (kpX > 0 || kpY > 0)) {
+                        kpX *= canvas.width;
+                        kpY *= canvas.height;
+                    }
+                    if (kpX === 0 && kpY === 0) return;
+
+                    const pointRadius = 2;
+                    ctx.beginPath();
+                    ctx.arc(kpX, kpY, pointRadius, 0, 2 * Math.PI);
+                    ctx.fillStyle = 'rgba(116, 185, 255, 0.7)';
+                    ctx.fill();
+
+                    // 标签：更小字体
+                    const kpLabel = KEYPOINT_NAMES[idx];
+                    if (kpLabel) {
+                        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+                        ctx.font = '9px -apple-system, BlinkMacSystemFont, sans-serif';
+                        ctx.fillText(kpLabel, kpX + 3, kpY + 1);
+                    }
+                });
+            }
+        }
+
+        function clamp01(value) {
+            return Math.max(0, Math.min(1, value));
+        }
+
+        function mapBackendState(state) {
+            if (state === '抬头') return 'head_up';
+            if (state === '看桌面') return 'desk';
+            if (state === '疑似睡觉') return 'sleep_like';
+            return 'unknown';
+        }
+
+        function buildBackendPerson(face, index, videoW, videoH, windowSeconds) {
+            const state = mapBackendState(face.studyState);
+            const personId = face.analyticsId
+                ? `person-${face.analyticsId}`
+                : `person-${index + 1}`;
+
+            return {
+                personId,
+                state,
+                confidence: Number((face.score ?? face.poseState?.confidence ?? 0).toFixed(3)),
+                visible: true,
+                durationSeconds: windowSeconds,
+                box: {
+                    x: Number(clamp01(face.box.originX / videoW).toFixed(4)),
+                    y: Number(clamp01(face.box.originY / videoH).toFixed(4)),
+                    width: Number(clamp01(face.box.width / videoW).toFixed(4)),
+                    height: Number(clamp01(face.box.height / videoH).toFixed(4))
+                }
+            };
+        }
+
+        function buildStatusPayload(faces, videoW, videoH) {
+            const windowSeconds = BACKEND_POST_INTERVAL_MS / 1000;
+            const people = faces.map((face, index) =>
+                buildBackendPerson(face, index, videoW, videoH, windowSeconds)
+            );
+
+            return {
+                deviceId: DEVICE_ID,
+                classId: CLASS_ID,
+                className: classSessionName || getClassName(),
+                classStatus: getClassStatus(),
+                capturedAt: new Date().toISOString(),
+                windowSeconds,
+                frameInfo: {
+                    fps,
+                    width: videoW,
+                    height: videoH
+                },
+                summary: {
+                    total: people.length,
+                    headUp: people.filter(p => p.state === 'head_up').length,
+                    desk: people.filter(p => p.state === 'desk').length,
+                    sleepLike: people.filter(p => p.state === 'sleep_like').length,
+                    unknown: people.filter(p => p.state === 'unknown').length
+                },
+                people
+            };
+        }
+
+        function getClassName() {
+            const value = classNameInput ? classNameInput.value.trim() : '';
+            return value || classSessionName || '未命名课堂';
+        }
+
+        function getClassStatus() {
+            if (classSessionActive) return 'active';
+            if (classSessionEndedAt) return 'ended';
+            return 'idle';
+        }
+
+        function getEmptySummary() {
+            return { total: 0, headUp: 0, desk: 0, sleepLike: 0, unknown: 0 };
+        }
+
+        function buildSessionEventPayload(eventType) {
+            const base = latestStatusPayload || {
+                deviceId: DEVICE_ID,
+                classId: CLASS_ID,
+                className: classSessionName || getClassName(),
+                classStatus: getClassStatus(),
+                capturedAt: new Date().toISOString(),
+                windowSeconds: BACKEND_POST_INTERVAL_MS / 1000,
+                frameInfo: {
+                    fps,
+                    width: video.videoWidth || 0,
+                    height: video.videoHeight || 0
+                },
+                summary: getEmptySummary(),
+                people: []
+            };
+            const summary = eventType === 'class_start'
+                ? getEmptySummary()
+                : (base.summary || getEmptySummary());
+
+            return {
+                ...base,
+                capturedAt: new Date().toISOString(),
+                windowSeconds: BACKEND_POST_INTERVAL_MS / 1000,
+                frameInfo: base.frameInfo || {
+                    fps,
+                    width: video.videoWidth || 0,
+                    height: video.videoHeight || 0
+                },
+                summary,
+                people: [],
+            };
+        }
+
+        function decoratePayloadWithSession(payload, eventType) {
+            return {
+                ...payload,
+                eventType,
+                classActive: classSessionActive,
+                classStatus: eventType === 'class_end' ? 'ended' : getClassStatus(),
+                className: classSessionName || getClassName(),
+                sessionId: classSessionId,
+                sessionStartedAt: classSessionStartedAt,
+                sessionEndedAt: eventType === 'class_end' ? classSessionEndedAt : null
+            };
+        }
+
+        function setBackendStatus(kind, text) {
+            backendStatusChip.className = `backend-chip ${kind}`;
+            backendStatusChip.textContent = text;
+        }
+
+        function setRemoteCommandStatus(kind, text) {
+            if (!remoteCommandChip) return;
+            remoteCommandChip.className = `backend-chip ${kind}`;
+            remoteCommandChip.textContent = text;
+        }
+
+        function normalizeRemoteCommand(data) {
+            const source = data?.data || data?.payload || data || {};
+            const rawCommand = source.command || source.type || source.action || source.eventType;
+            if (!rawCommand) return null;
+
+            const normalized = String(rawCommand).trim().toLowerCase().replace(/-/g, '_');
+            const commandMap = {
+                start: 'class_start',
+                class_start: 'class_start',
+                start_class: 'class_start',
+                begin_class: 'class_start',
+                end: 'class_end',
+                stop: 'class_end',
+                class_end: 'class_end',
+                end_class: 'class_end',
+                finish_class: 'class_end',
+                none: 'none',
+                idle: 'none',
+                noop: 'none'
+            };
+            const command = commandMap[normalized] || normalized;
+            if (command === 'none') return null;
+            if (command !== 'class_start' && command !== 'class_end') return null;
+
+            return {
+                command,
+                commandId: source.commandId || source.id || source.uuid || null,
+                issuedAt: source.issuedAt || source.createdAt || source.updatedAt || source.timestamp || null,
+                className: source.className || source.courseName || source.name || '',
+                classId: source.classId || source.class_id || CLASS_ID
+            };
+        }
+
+        function getRemoteCommandKey(command) {
+            if (command.commandId) return `${command.command}:${command.commandId}`;
+            if (command.issuedAt) return `${command.command}:${command.issuedAt}`;
+            return `${command.command}:${command.className || ''}:${command.classId || CLASS_ID}`;
+        }
+
+        async function applyRemoteCommand(command) {
+            if (command.className && classNameInput && !classSessionActive) {
+                classNameInput.value = command.className;
+            }
+
+            if (command.command === 'class_start') {
+                if (classSessionActive) {
+                    setRemoteCommandStatus('ok', '远程：已在上课');
+                    return;
+                }
+                await startClassSession({ className: command.className, source: 'remote' });
+                setRemoteCommandStatus('ok', '远程：已开始');
+                return;
+            }
+
+            if (command.command === 'class_end') {
+                if (!classSessionActive) {
+                    setRemoteCommandStatus('ok', '远程：已下课');
+                    return;
+                }
+                await endClassSession({ source: 'remote' });
+                setRemoteCommandStatus('ok', '远程：已下课');
+            }
+        }
+
+        async function pollRemoteCommand() {
+            if (!BACKEND_COMMAND_ENDPOINT || commandPollInFlight) return;
+            commandPollInFlight = true;
+
+            try {
+                const url = new URL(BACKEND_COMMAND_ENDPOINT);
+                url.searchParams.set('deviceId', DEVICE_ID);
+                url.searchParams.set('classId', String(CLASS_ID));
+                url.searchParams.set('_', String(Date.now()));
+
+                const response = await fetch(url.toString(), {
+                    method: 'GET',
+                    cache: 'no-store',
+                    headers: { 'Accept': 'application/json' }
+                });
+
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                const data = await response.json();
+                const command = normalizeRemoteCommand(data);
+                if (!command) {
+                    setRemoteCommandStatus('idle', '远程：无命令');
+                    return;
+                }
+
+                const key = getRemoteCommandKey(command);
+                if (key === lastHandledCommandKey) {
+                    setRemoteCommandStatus('idle', '远程：已处理');
+                    return;
+                }
+
+                lastHandledCommandKey = key;
+                setRemoteCommandStatus('sending', '远程：执行中');
+                await applyRemoteCommand(command);
+            } catch (err) {
+                setRemoteCommandStatus('error', '远程：连接失败');
+                console.warn('远程课堂命令获取失败:', err.message || err);
+            } finally {
+                commandPollInFlight = false;
+            }
+        }
+
+        function startRemoteCommandPolling() {
+            if (!BACKEND_COMMAND_ENDPOINT || commandPollTimer) return;
+            setRemoteCommandStatus('sending', '远程：连接中');
+            pollRemoteCommand();
+            commandPollTimer = setInterval(pollRemoteCommand, COMMAND_POLL_INTERVAL_MS);
+            window.pollClassCommand = pollRemoteCommand;
+        }
+
+        async function postBackendPayload(payload, successText = '后端：已发送') {
+            if (!BACKEND_STATUS_ENDPOINT) {
+                setBackendStatus('idle', '后端：未配置');
+                return;
+            }
+
+            try {
+                setBackendStatus('sending', '后端：发送中');
+                const response = await fetch(BACKEND_STATUS_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                setBackendStatus('ok', successText);
+            } catch (err) {
+                setBackendStatus('error', '后端：发送失败');
+                console.warn('状态数据发送失败:', err.message || err);
+            }
+        }
+
+        function updateClassSessionUi() {
+            if (classSessionActive) {
+                classSessionBtn.textContent = '下课';
+                classSessionBtn.classList.add('active');
+                if (classNameInput) classNameInput.disabled = true;
+                classSessionChip.textContent = '上课中';
+                classSessionChip.className = 'session-chip active';
+                classSessionDetail.textContent = `课堂：${classSessionName || getClassName()} | 会话：${classSessionId}`;
+                return;
+            }
+
+            classSessionBtn.textContent = '开始上课';
+            classSessionBtn.classList.remove('active');
+            if (classNameInput) classNameInput.disabled = false;
+            if (classSessionEndedAt) {
+                classSessionChip.textContent = '已下课';
+                classSessionChip.className = 'session-chip ended';
+                classSessionDetail.textContent = `课堂：${classSessionName || getClassName()} | 上次下课：${new Date(classSessionEndedAt).toLocaleTimeString()}`;
+            } else {
+                classSessionChip.textContent = '未上课';
+                classSessionChip.className = 'session-chip idle';
+                classSessionDetail.textContent = '连接视频后可先预览识别结果，点击开始上课才会发送数据。';
+            }
+        }
+
+        async function sendClassSessionEvent(eventType) {
+            const payload = decoratePayloadWithSession(buildSessionEventPayload(eventType), eventType);
+            const labels = {
+                class_start: '后端：已开始',
+                class_tick: '后端：已同步',
+                class_end: '后端：已下课'
+            };
+            await postBackendPayload(payload, labels[eventType] || '后端：已发送');
+        }
+
+        async function startClassSession(options = {}) {
+            classSessionActive = true;
+            classSessionId = `${DEVICE_ID}-${Date.now()}`;
+            classSessionName = (options.className || getClassName()).trim() || '未命名课堂';
+            if (classNameInput) classNameInput.value = classSessionName;
+            classStartedAt = Date.now();
+            classEndedAt = null;
+            classSessionStartedAt = new Date(classStartedAt).toISOString();
+            classSessionEndedAt = null;
+            lastBackendPostAt = 0;
+            updateClassSessionUi();
+            updateDurationDisplay();
+            await sendClassSessionEvent('class_start');
+        }
+
+        async function endClassSession(options = {}) {
+            if (!classSessionActive || !classSessionId) return;
+            classEndedAt = Date.now();
+            classSessionEndedAt = new Date(classEndedAt).toISOString();
+            classSessionActive = false;
+            updateClassSessionUi();
+            updateDurationDisplay();
+            await sendClassSessionEvent('class_end');
+        }
+
+        function maybeSendStatusPayload(payload, now) {
+            latestStatusPayload = payload;
+            window.latestClassroomStatusPayload = payload;
+            window.getClassroomStatusPayload = () => latestStatusPayload;
+            window.latestClassroomAnalytics = latestAnalyticsSnapshot;
+            window.getClassroomAnalytics = () => latestAnalyticsSnapshot;
+
+            if (!classSessionActive) return;
+            if (!BACKEND_STATUS_ENDPOINT) return;
+            if (now - lastBackendPostAt < BACKEND_POST_INTERVAL_MS) return;
+            lastBackendPostAt = now;
+
+            postBackendPayload(decoratePayloadWithSession(payload, 'class_tick'), '后端：已同步');
+        }
+
+        // ---- 主检测循环 ----
+        async function detectAndDraw() {
+            if (video.paused || video.ended) {
+                requestAnimationFrame(detectAndDraw);
+                return;
+            }
+
+            const displayWidth = video.videoWidth;
+            const displayHeight = video.videoHeight;
+
+            if (!displayWidth || !displayHeight) {
+                requestAnimationFrame(detectAndDraw);
+                return;
+            }
+
+            if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+                canvas.width = displayWidth;
+                canvas.height = displayHeight;
+                console.log(`📐 canvas 尺寸更新: ${displayWidth}×${displayHeight}`);
+            }
+
+            const zoneInfo = DEPTH_ZONES.map(z => `${z.label}×${z.scale}`).join('/');
+            const useYoloPipeline = yoloReady && yoloSession;
+            const pipelineLabel = useYoloPipeline
+                ? (detectionMode === 'classroom' ? 'version4-yolo-grid' : 'version4-yolo-person')
+                : 'face-only';
+            debugVideoSize.textContent = `视频: ${displayWidth}×${displayHeight} | ${detectionMode === 'classroom' ? `大教室${GRID_COLS}×${GRID_ROWS}前后同步轮询 列${gridTileCursor + 1}/${GRID_COLS} ${zoneInfo}` : '普通'} | full_range${debugRawDetection ? ' DEBUG' : ''} | ${pipelineLabel}`;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const now = performance.now();
+            let detections = [];
+
+            if (useYoloPipeline) {
+                if (now - lastDetectTime >= DETECT_INTERVAL_MS) {
+                    lastDetectTime = now;
+                    runYoloDetectionCycle(now);
+                }
+
+                if (now - lastDetectionsTimestamp <= CACHE_MAX_AGE_MS || yoloDetectInProgress) {
+                    detections = lastDetections;
+                } else {
+                    detections = [];
+                }
+            } else if (detectionMode === 'classroom') {
+                // ---- 大教室模式：节流 + 分块检测 ----
+                if (now - lastDetectTime >= DETECT_INTERVAL_MS) {
+                    lastDetectTime = now;
+                    try {
+                        detections = await detectGrid(now);
+                        lastDetections = detections;
+                        lastDetectionsTimestamp = now;
+                    } catch (e) {
+                        console.error('分块检测出错:', e.message || e);
+                        // 缓存过期则清空
+                        if (now - lastDetectionsTimestamp > CACHE_MAX_AGE_MS) {
+                            detections = [];
+                        } else {
+                            detections = lastDetections;
+                        }
+                    }
+                } else if (now - lastDetectionsTimestamp <= CACHE_MAX_AGE_MS) {
+                    detections = lastDetections;
+                } else {
+                    detections = []; // 缓存过期，等待新检测
+                }
+            } else {
+                // ---- 普通模式：整帧检测 ----
+                try {
+                    const fullCanvas = videoToCanvas(frameCanvas, frameCtx);
+                    const result = await detectOnCanvas(fullCanvas);
+                    detections = result.detections || [];
+                } catch (e) {
+                    console.error('检测出错:', e.message || e);
+                }
+            }
+
+            // === 管道：debug 模式跳过跟踪 ===
+            let displayFaces;
+            let rawValidCount = 0;
+
+            if (useYoloPipeline && debugRawDetection) {
+                rawValidCount = detections.length;
+                displayFaces = detections.map((det, index) => {
+                    const box = det.boundingBox;
+                    const stateResult = classifyPersonCropHeuristic(box, displayWidth, displayHeight);
+                    return {
+                        id: index + 1,
+                        box: { originX: box.originX, originY: box.originY, width: box.width, height: box.height },
+                        score: det.categories?.[0]?.score ?? 0,
+                        keypoints: null,
+                        _class: 'person',
+                        _zone: getDepthZoneForBox(box).name,
+                        _zoneLabel: getDepthZoneForBox(box).label,
+                        confirmed: 0,
+                        headPose: null,
+                        poseState: null,
+                        studyState: stateResult.state,
+                        stateConfidence: stateResult.confidence,
+                        classifier: stateResult.classifier,
+                        _rawBox: `${Math.round(box.width)}×${Math.round(box.height)}`
+                    };
+                });
+            } else if (useYoloPipeline) {
+                rawValidCount = detections.length;
+                displayFaces = matchYoloPersonDetections(detections, displayWidth, displayHeight);
+            } else if (debugRawDetection) {
+                const t = getFaceThresholds();
+                const raw = [];
+                for (const det of detections) {
+                    const box = det.boundingBox;
+                    const score = det.categories?.[0]?.score ?? 0;
+                    const cls = classifyDetection(box, score, det._zone);
+                    if (cls === 'ignore') continue;
+                    rawValidCount++;
+                    raw.push({
+                        box: { originX: box.originX, originY: box.originY, width: box.width, height: box.height },
+                        score, keypoints: det.keypoints || null, _class: cls,
+                        _zone: det._zone || getDepthZoneForBox(box).name,
+                        _zoneLabel: det._zoneLabel || getDepthZoneForBox(box).label,
+                        confirmed: 0, headPose: null, studyState: '无法判断',
+                        _rawBox: `${Math.round(box.width)}×${Math.round(box.height)}`
+                    });
+                }
+                displayFaces = raw;
+            } else {
+                displayFaces = matchDetections(detections);
+            }
+
+            // === Pose Landmarker：低频全帧 → 匹配到各人脸/人体 ===
+            let poses = [];
+            if (!useYoloPipeline && shouldRefreshPoses(now)) {
+                const maxSide = detectionMode === 'classroom' ? POSE_INPUT_MAX_SIDE : 0;
+                const pc = videoToCanvas(poseCanvas, poseCtx, maxSide);
+                poses = await getCachedPoses(pc, now);
+            } else if (!useYoloPipeline && now - lastPosesTimestamp <= CACHE_MAX_AGE_MS) {
+                poses = lastPoses;
+            }
+            const canvasW = displayWidth, canvasH = displayHeight;
+            const usedPoseIndexes = new Set();
+            let fullFrameForLandmarker = null;
+            let faceLandmarkerBudget = now - lastFaceLandmarkerAt >= FACE_LANDMARKER_INTERVAL_MS
+                ? FACE_LANDMARKER_MAX_PER_FRAME
+                : 0;
+            let faceLandmarkerUsed = 0;
+
+            // 诊断：每秒打印 Pose 数量 + 关键点可见性
+            if (now - debugLastLog >= 1000) {
+                console.log(`🦴 Pose检测: 检测到 ${poses.length} 人`);
+                poses.forEach((lm, i) => {
+                    const n = lm[0], ls = lm[11], rs = lm[12];
+                    console.log(`  Pose${i}: 鼻(${n?.visibility?.toFixed(2)||'?'} ${n?.x?.toFixed(2)},${n?.y?.toFixed(2)}) 左肩(${ls?.visibility?.toFixed(2)||'?'}) 右肩(${rs?.visibility?.toFixed(2)||'?'})`);
+                });
+            }
+
+            for (const face of displayFaces) {
+                if (face._class === 'person') {
+                    continue;
+                }
+
+                // 匹配最近的人体姿态
+                const matchedPose = matchFaceToPose(face.box, poses, canvasW, canvasH);
+                if (now - debugLastLog >= 1000 && displayFaces.indexOf(face) === 0) {
+                    console.log(`  🔗 匹配: ${matchedPose ? '✅' : '❌'} faceBox=(${Math.round(face.box.originX)},${Math.round(face.box.originY)} ${Math.round(face.box.width)}×${Math.round(face.box.height)}) poses=${poses.length}`);
+                }
+                if (matchedPose) {
+                    const poseIndex = poses.indexOf(matchedPose);
+                    if (poseIndex >= 0) usedPoseIndexes.add(poseIndex);
+                    face.poseLandmarks = matchedPose;
+                    face.poseState = derivePoseState(matchedPose, canvasW, canvasH);
+                } else {
+                    face.poseLandmarks = null;
+                    face.poseState = null;
+                }
+
+                // Face Landmarker：可靠人脸 ≥90px（作为辅助）
+                if (faceLandmarkerBudget > 0 && face._class === 'reliable' && face.box.width >= 90 && face.box.height >= 90) {
+                    if (!fullFrameForLandmarker) fullFrameForLandmarker = videoToCanvas(frameCanvas, frameCtx);
+                    face.headPose = await runFaceLandmarkerDirect(fullFrameForLandmarker, face.box);
+                    faceLandmarkerBudget--;
+                    faceLandmarkerUsed++;
+                } else {
+                    face.headPose = null;
+                }
+
+                const candidate = deriveCandidateState(face);
+                updateTrackStudyState(face, candidate);
+            }
+
+            if (faceLandmarkerUsed > 0) lastFaceLandmarkerAt = now;
+
+            // Pose 仅辅助状态判断，不创建人物 track（face-only）
+            const reliableFaces = displayFaces.filter(f => f._class === 'reliable');
+            const distantFaces = displayFaces.filter(f => f._class === 'distant');
+            const personFaces = displayFaces.filter(f => f._class === 'person');
+
+            // 每秒调试
+            if (now - debugLastLog >= 1000) {
+                console.log(`🔍 [${detectionMode}${debugRawDetection ? ' DEBUG' : ''}] ${pipelineLabel} | raw:${detections.length} valid:${rawValidCount || displayFaces.length} (人体:${personFaces.length} 可靠:${reliableFaces.length} 远距:${distantFaces.length})`);
+                displayFaces.slice(0, DEBUG_LOG_MAX_PEOPLE).forEach((t, i) => {
+                    const ri = t._rawBox ? ` raw:${t._rawBox}` : ` 平滑:${Math.round(t.box.width)}×${Math.round(t.box.height)}`;
+                    const hp = t.headPose ? ` [${t.headPose.label}]` : '';
+                    const ps = t.poseState ? ` pose=${t.poseState.label}/${t.poseState.detail}` : '';
+                    console.log(`  人物 ${i + 1}: ${t._class}${hp}${ps} ${(t.score * 100).toFixed(0)}%${ri} 状态=${t.studyState} 确认${t.confirmed || 0}帧`);
+                });
+                if (displayFaces.length > DEBUG_LOG_MAX_PEOPLE) {
+                    console.log(`  ... 还有 ${displayFaces.length - DEBUG_LOG_MAX_PEOPLE} 人省略日志`);
+                }
+                if (!debugRawDetection && detections.length > 0 && displayFaces.length > 0) {
+                    const rb = detections[0].boundingBox;
+                    const sb = displayFaces[0].box;
+                    console.log(`  📐 raw=(${Math.round(rb.originX)},${Math.round(rb.originY)} ${Math.round(rb.width)}×${Math.round(rb.height)}) smoothed=(${Math.round(sb.originX)},${Math.round(sb.originY)} ${Math.round(sb.width)}×${Math.round(sb.height)})`);
+                }
+                debugLastLog = now;
+            }
+
+            if (displayFaces.length > 0) lastConfidence = displayFaces[0].score;
+            else lastConfidence = null;
+            debugLastScore.textContent = `最后置信度: ${lastConfidence ? (lastConfidence * 100).toFixed(0) + '%' : '--'}`;
+
+            // Face cap：最多 MAX_FACE_TRACKS 张脸
+            if (displayFaces.length > MAX_FACE_TRACKS) {
+                displayFaces.sort((a, b) => {
+                    if ((a._class === 'reliable') !== (b._class === 'reliable')) return a._class === 'reliable' ? -1 : 1;
+                    const scoreDelta = (b.score || 0) - (a.score || 0);
+                    if (Math.abs(scoreDelta) > 0.04) return scoreDelta;
+                    const areaA = (a.box?.width || 0) * (a.box?.height || 0);
+                    const areaB = (b.box?.width || 0) * (b.box?.height || 0);
+                    return areaB - areaA;
+                });
+                displayFaces = displayFaces.slice(0, MAX_FACE_TRACKS);
+            }
+
+            const analyticsSnapshot = updateAnalytics(displayFaces, now, displayWidth, displayHeight);
+
+            // 绘制（仅脸部检测框）
+            displayFaces.forEach(t => drawOneDetection(t, displayWidth));
+
+            // UI
+            const upCount = analyticsSnapshot.summary.up;
+            const deskCount = analyticsSnapshot.summary.desk;
+            const sleepCount = analyticsSnapshot.summary.sleep;
+            const unknownCount = analyticsSnapshot.summary.unknown;
+            let faceSummary = `检测到: ${analyticsSnapshot.summary.total} 人`;
+            const parts = [];
+            if (upCount > 0) parts.push(`抬头${upCount}`);
+            if (deskCount > 0) parts.push(`看桌面${deskCount}`);
+            if (sleepCount > 0) parts.push(`疑似睡觉${sleepCount}`);
+            if (unknownCount > 0) parts.push(`无法判断${unknownCount}`);
+            if (parts.length > 0) faceSummary += ` (${parts.join(' ')})`;
+            faceCountEl.textContent = faceSummary;
+            updateClassroomStatus(displayFaces.length);
+            maybeSendStatusPayload(buildStatusPayload(displayFaces, displayWidth, displayHeight), now);
+
+            frameCount++;
+            if (now - lastTime >= 1000) {
+                fps = Math.round(frameCount / ((now - lastTime) / 1000));
+                frameCount = 0;
+                lastTime = now;
+                fpsEl.textContent = `FPS: ${fps}`;
+            }
+
+            requestAnimationFrame(detectAndDraw);
+        }
+
+        // ---- 模式切换 ----
+        modeToggleBtn.addEventListener('click', () => {
+            if (detectionMode === 'normal') {
+                detectionMode = 'classroom';
+                modeToggleBtn.textContent = '🏫 大教室模式';
+                modeToggleBtn.classList.add('classroom');
+                lastDetections = [];
+                lastDetectTime = 0;
+                trackedFaces = [];
+                console.log('🔀 大教室模式（4×3重叠分块轮询 | 每轮3块 | 保留2.5秒结果 | ≥16px | 置信度≥0.18）');
+            } else {
+                detectionMode = 'normal';
+                modeToggleBtn.textContent = '🏫 普通模式';
+                modeToggleBtn.classList.remove('classroom');
+                lastDetections = [];
+                trackedFaces = [];
+                console.log('🔀 普通模式（整帧 | ≥45px | 置信度≥0.45 | full_range）');
+            }
+        });
+
+        // ========== 事件监听 ==========
+        startCameraBtn.addEventListener('click', async () => {
+            statusEl.textContent = '⏳ 切换到摄像头...';
+            statusEl.className = 'status loading';
+            try {
+                await startCamera(cameraSelect.value);
+                statusEl.textContent = '✅ 检测中';
+                statusEl.className = 'status ready';
+            } catch (e) {
+                console.error('切换摄像头失败:', e);
+            }
+        });
+
+        cameraSelect.addEventListener('change', async () => {
+            if (currentInputSource !== 'camera') return;
+            statusEl.textContent = '⏳ 切换摄像头...';
+            statusEl.className = 'status loading';
+            try {
+                await startCamera(cameraSelect.value);
+                statusEl.textContent = '✅ 检测中';
+                statusEl.className = 'status ready';
+            } catch (e) { /* 已在 startCamera 处理 */ }
+        });
+
+        startStreamBtn.addEventListener('click', async () => {
+            statusEl.textContent = '⏳ 打开网络视频流...';
+            statusEl.className = 'status loading';
+            try {
+                await startNetworkStream(streamUrlInput.value);
+                permissionHelp.classList.remove('visible');
+                if (!detectLoopStarted) {
+                    detectLoopStarted = true;
+                    detectAndDraw();
+                }
+            } catch (err) {
+                console.error('打开网络流失败:', err);
+                statusEl.textContent = '❌ ' + (err.message || '网络流打开失败');
+                statusEl.className = 'status error';
+            }
+        });
+
+        showBoxCheckbox.addEventListener('change', () => {
+            showDetectionBox = showBoxCheckbox.checked;
+            console.log(`👁 显示检测框: ${showDetectionBox ? '开启' : '关闭（仅统计人数）'}`);
+        });
+
+        video.addEventListener('waiting', () => {
+            if (currentInputSource === 'stream') {
+                console.warn('视频进入 waiting 状态');
+            }
+        });
+
+        video.addEventListener('stalled', () => {
+            if (currentInputSource === 'stream') {
+                recoverNetworkStream('video stalled');
+            }
+        });
+
+        video.addEventListener('error', () => {
+            if (currentInputSource === 'stream') {
+                recoverNetworkStream('video element error');
+            }
+        });
+
+        classSessionBtn.addEventListener('click', async () => {
+            classSessionBtn.disabled = true;
+            try {
+                if (classSessionActive) {
+                    await endClassSession();
+                } else {
+                    await startClassSession();
+                }
+            } finally {
+                classSessionBtn.disabled = false;
+            }
+        });
+
+        retryCameraBtn.addEventListener('click', async () => {
+            try {
+                statusEl.textContent = '⏳ 正在重新请求摄像头...';
+                statusEl.className = 'status loading';
+                await startCamera(cameraSelect.value);
+                permissionHelp.classList.remove('visible');
+                statusEl.textContent = '✅ 检测中';
+                statusEl.className = 'status ready';
+                if (!detectLoopStarted) {
+                    detectLoopStarted = true;
+                    detectAndDraw();
+                }
+            } catch (err) {
+                console.error('重新请求摄像头失败:', err);
+                showCameraError(err);
+            }
+        });
+
+        // ========== 主流程 ==========
+        (async function main() {
+            try {
+                updateClassSessionUi();
+                startRemoteCommandPolling();
+                const params = new URLSearchParams(window.location.search);
+                const streamFromUrl = params.get('stream') || params.get('video');
+                const savedStreamUrl = localStorage.getItem('classroomStreamUrl');
+                if (streamFromUrl || savedStreamUrl) {
+                    streamUrlInput.value = streamFromUrl || savedStreamUrl;
+                }
+
+                const cameras = await enumerateCameras();
+                if (cameras.length === 0 && !streamUrlInput.value) {
+                    statusEl.textContent = '⚠️ 未检测到摄像头设备';
+                    statusEl.className = 'status error';
+                    return;
+                }
+
+                const selectedId = cameraSelect.value;
+                statusEl.textContent = '⏳ 下载AI模型中...';
+                await loadModels();
+
+                if (streamFromUrl) {
+                    statusEl.textContent = '⏳ 打开网络视频流...';
+                    await startNetworkStream(streamFromUrl);
+                } else if (cameras.length > 0) {
+                    await startCamera(selectedId);
+                } else if (streamUrlInput.value) {
+                    statusEl.textContent = '⏳ 打开网络视频流...';
+                    await startNetworkStream(streamUrlInput.value);
+                }
+
+                permissionHelp.classList.remove('visible');
+                statusEl.textContent = currentInputSource === 'stream' ? '✅ 网络流检测中' : '✅ 检测中';
+                statusEl.className = 'status ready';
+
+                if (!detectLoopStarted) {
+                    detectLoopStarted = true;
+                    detectAndDraw();
+                }
+            } catch (err) {
+                console.error('初始化失败:', err);
+                showCameraError(err);
+            }
+        })();
+    </script>
+</body>
+</html>

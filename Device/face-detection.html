@@ -358,83 +358,504 @@
         .analytics-table .muted {
             color: #8d99a6;
         }
+
+        /* ---- 科技大屏版布局覆盖 ---- */
+        body {
+            display: block;
+            min-height: 100vh;
+            background:
+                linear-gradient(180deg, #070910 0%, #0e1320 52%, #080b12 100%);
+            color: #edf4ff;
+            padding: 18px;
+            overflow-x: hidden;
+        }
+
+        .app-shell {
+            width: min(100%, 1500px);
+            margin: 0 auto;
+        }
+
+        .app-header {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(320px, 460px);
+            gap: 18px;
+            align-items: stretch;
+            margin-bottom: 16px;
+        }
+
+        .brand-block,
+        .session-panel,
+        .control-deck,
+        .video-stage,
+        .metrics-panel,
+        .analytics-panel {
+            border: 1px solid rgba(116, 185, 255, 0.24);
+            background: rgba(10, 17, 30, 0.82);
+            box-shadow: 0 18px 46px rgba(0, 0, 0, 0.34);
+            backdrop-filter: blur(12px);
+        }
+
+        .brand-block,
+        .session-panel {
+            min-height: 132px;
+            padding: 20px 22px;
+            border-radius: 12px;
+        }
+
+        .eyebrow {
+            margin-bottom: 8px;
+            color: #7ed6df;
+            font-size: 0.78rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 2rem;
+            line-height: 1.12;
+            color: #f7fbff;
+            letter-spacing: 0;
+        }
+
+        .subtitle {
+            max-width: 680px;
+            margin: 12px 0 0;
+            color: #9caec5;
+            font-size: 0.92rem;
+        }
+
+        .session-panel {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .session-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .session-chip,
+        .backend-chip,
+        .source-status,
+        .analytics-chip,
+        .debug-info span {
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.06);
+            color: #c9d7ea;
+        }
+
+        .session-chip,
+        .backend-chip {
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .session-chip.active,
+        .backend-chip.ok {
+            border-color: rgba(0, 184, 148, 0.55);
+            background: rgba(0, 184, 148, 0.16);
+            color: #55efc4;
+        }
+
+        .session-chip.ended {
+            border-color: rgba(253, 203, 110, 0.55);
+            background: rgba(253, 203, 110, 0.14);
+            color: #ffeaa7;
+        }
+
+        .backend-chip.sending {
+            border-color: rgba(116, 185, 255, 0.55);
+            background: rgba(116, 185, 255, 0.14);
+            color: #74b9ff;
+        }
+
+        .backend-chip.error {
+            border-color: rgba(255, 118, 117, 0.6);
+            background: rgba(255, 118, 117, 0.14);
+            color: #ff7675;
+        }
+
+        .session-toggle {
+            width: 100%;
+            min-height: 52px;
+            border: 0;
+            border-radius: 10px;
+            background: #00cec9;
+            color: #061014;
+            font-size: 1rem;
+            font-weight: 800;
+            cursor: pointer;
+            box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22) inset, 0 12px 28px rgba(0, 206, 201, 0.18);
+        }
+
+        .session-toggle.active {
+            background: #ff7675;
+            color: #160606;
+            box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.24) inset, 0 12px 28px rgba(255, 118, 117, 0.18);
+        }
+
+        .session-toggle:disabled {
+            opacity: 0.62;
+            cursor: wait;
+        }
+
+        .session-detail {
+            color: #9caec5;
+            font-size: 0.78rem;
+            line-height: 1.5;
+            overflow-wrap: anywhere;
+        }
+
+        .control-deck {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 16px;
+            padding: 12px;
+            border-radius: 12px;
+        }
+
+        .controls {
+            justify-content: flex-start;
+            margin: 0;
+            gap: 10px;
+        }
+
+        .controls label {
+            color: #b9c7d8;
+            font-weight: 700;
+        }
+
+        #cameraSelect,
+        .stream-input,
+        .mode-toggle {
+            min-height: 38px;
+            border-radius: 9px;
+            border-color: rgba(116, 185, 255, 0.28);
+            background: rgba(9, 18, 35, 0.96);
+            color: #edf4ff;
+        }
+
+        #cameraSelect:focus,
+        .stream-input:focus {
+            border-color: #00cec9;
+            box-shadow: 0 0 0 3px rgba(0, 206, 201, 0.12);
+        }
+
+        .mode-toggle {
+            color: #9ad8ff;
+            font-weight: 700;
+        }
+
+        .mode-toggle.primary {
+            background: #ff5c76;
+            border-color: #ff5c76;
+            color: #fff;
+        }
+
+        .mode-toggle.classroom {
+            background: #fdcb6e;
+            color: #1f2630;
+            border-color: #fdcb6e;
+        }
+
+        .mirror-toggle {
+            color: #c9d7ea;
+        }
+
+        .stage-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 280px;
+            gap: 16px;
+            align-items: start;
+        }
+
+        .video-stage {
+            padding: 12px;
+            border-radius: 12px;
+        }
+
+        .stage-toolbar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .container {
+            width: 100%;
+            max-width: none;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 0 1px rgba(116, 185, 255, 0.08), 0 24px 56px rgba(0, 0, 0, 0.52);
+        }
+
+        .metrics-panel {
+            display: grid;
+            gap: 10px;
+            padding: 12px;
+            border-radius: 12px;
+        }
+
+        .metric-tile {
+            display: grid;
+            gap: 6px;
+            min-height: 78px;
+            padding: 13px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.045);
+        }
+
+        .metric-tile.primary {
+            border-color: rgba(255, 92, 118, 0.42);
+            background: rgba(255, 92, 118, 0.1);
+        }
+
+        .metric-label {
+            color: #8fa2ba;
+            font-size: 0.74rem;
+            font-weight: 700;
+        }
+
+        .metric-tile strong {
+            color: #f7fbff;
+            font-size: 0.95rem;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+        }
+
+        .status,
+        .face-count,
+        .fps,
+        .classroom-status,
+        .state-duration {
+            border-radius: 999px;
+            box-shadow: none;
+        }
+
+        .status.loading {
+            background: rgba(178, 190, 195, 0.18);
+            color: #dfe6e9;
+        }
+
+        .status.ready {
+            background: rgba(0, 184, 148, 0.18);
+            color: #55efc4;
+        }
+
+        .status.error {
+            background: rgba(255, 118, 117, 0.18);
+            color: #ff7675;
+        }
+
+        .classroom-status.present {
+            background: rgba(0, 184, 148, 0.18);
+            color: #55efc4;
+        }
+
+        .classroom-status.away {
+            background: rgba(178, 190, 195, 0.16);
+            color: #dfe6e9;
+        }
+
+        .classroom-status.multi {
+            background: rgba(253, 203, 110, 0.2);
+            color: #ffeaa7;
+        }
+
+        .debug-info {
+            justify-content: flex-start;
+            gap: 8px;
+            margin-top: 0;
+        }
+
+        .analytics-panel {
+            width: 100%;
+            margin-top: 16px;
+            padding: 14px;
+            border-radius: 12px;
+            overflow-x: auto;
+        }
+
+        .analytics-title {
+            color: #f7fbff;
+        }
+
+        .analytics-table th {
+            color: #7ed6df;
+        }
+
+        .analytics-table td {
+            color: #e7eef8;
+        }
+
+        .permission-help {
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        @media (max-width: 980px) {
+            body {
+                padding: 12px;
+            }
+
+            .app-header,
+            .stage-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .brand-block,
+            .session-panel {
+                min-height: auto;
+            }
+
+            .metrics-panel {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 640px) {
+            h1 {
+                font-size: 1.55rem;
+            }
+
+            .controls,
+            .stage-toolbar {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            #cameraSelect,
+            .stream-input,
+            .mode-toggle,
+            .source-status {
+                width: 100%;
+                min-width: 0;
+            }
+
+            .metrics-panel {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
-    <h1>🔴 实时人脸检测</h1>
-    <p class="subtitle">请允许浏览器访问摄像头</p>
-
-    <!-- 摄像头选择 + 镜像开关 -->
-    <div class="controls">
-        <label for="cameraSelect">📷 摄像头：</label>
-        <select id="cameraSelect">
-            <option value="">正在枚举设备...</option>
-        </select>
-        <button class="mode-toggle" id="startCameraBtn" title="使用选中的本机摄像头">📷 使用摄像头</button>
-        <button class="mode-toggle" id="modeToggleBtn" title="切换大教室分块检测模式">🏫 普通模式</button>
-        <label class="mirror-toggle">
-            <input type="checkbox" id="showBoxCheckbox" checked>
-            👁 显示检测框
-        </label>
-        <span class="source-status" id="sourceStatus">输入源：摄像头</span>
-    </div>
-
-    <div class="controls">
-        <label for="streamUrlInput">🌐 网络流：</label>
-        <input
-            class="stream-input"
-            id="streamUrlInput"
-            type="url"
-            placeholder="填 HLS/HTTP 地址，例如 /Device/stream/stream.m3u8"
-        >
-        <button class="mode-toggle primary" id="startStreamBtn" title="打开网络视频流">▶ 打开网络流</button>
-    </div>
-
-    <div class="container">
-        <video id="video" autoplay muted playsinline></video>
-        <canvas id="canvas"></canvas>
-    </div>
-
-    <div class="info-bar">
-        <span class="status loading" id="status">⏳ 加载模型中...</span>
-        <span class="face-count" id="faceCount">检测到: 0 人</span>
-        <span class="classroom-status away" id="classroomStatus">课堂状态：离开</span>
-        <span class="state-duration" id="stateDuration">持续：--</span>
-        <span class="fps" id="fps">FPS: --</span>
-    </div>
-
-    <!-- 调试信息 -->
-    <div class="debug-info" id="debugInfo">
-        <span id="debugVideoSize">视频: --</span>
-        <span id="debugLastScore">最后置信度: --</span>
-        <span id="debugEngine">引擎: MediaPipe</span>
-    </div>
-
-    <div class="analytics-panel" id="analyticsPanel">
-        <div class="analytics-header">
-            <div class="analytics-title">状态统计</div>
-            <div class="analytics-summary" id="stateSummary">
-                <span class="analytics-chip">当前：0 人</span>
-                <span class="analytics-chip">累计：0 人</span>
+    <main class="app-shell">
+        <header class="app-header">
+            <div class="brand-block">
+                <div class="eyebrow">ClassInsight Device Console</div>
+                <h1>课堂状态采集端</h1>
+                <p class="subtitle">实时识别人脸与课堂状态，按课堂会话向后端发送结构化数据。</p>
             </div>
-        </div>
-        <table class="analytics-table">
-            <thead>
-                <tr>
-                    <th>人员</th>
-                    <th>当前状态</th>
-                    <th>抬头</th>
-                    <th>看桌面</th>
-                    <th>疑似睡觉</th>
-                    <th>无法判断</th>
-                    <th>可见总时长</th>
-                </tr>
-            </thead>
-            <tbody id="personStatsBody">
-                <tr><td colspan="7" class="muted">等待检测数据...</td></tr>
-            </tbody>
-        </table>
-    </div>
+            <div class="session-panel">
+                <div class="session-meta">
+                    <span class="session-chip idle" id="classSessionChip">未上课</span>
+                    <span class="backend-chip idle" id="backendStatusChip">后端：待发送</span>
+                </div>
+                <button class="session-toggle" id="classSessionBtn" title="开始或结束课堂数据发送">开始上课</button>
+                <div class="session-detail" id="classSessionDetail">连接视频后可先预览识别结果，点击开始上课才会发送数据。</div>
+            </div>
+        </header>
+
+        <section class="control-deck" aria-label="设备控制">
+            <div class="controls">
+                <label for="cameraSelect">摄像头</label>
+                <select id="cameraSelect">
+                    <option value="">正在枚举设备...</option>
+                </select>
+                <button class="mode-toggle" id="startCameraBtn" title="使用选中的本机摄像头">使用摄像头</button>
+                <button class="mode-toggle" id="modeToggleBtn" title="切换大教室分块检测模式">普通模式</button>
+                <label class="mirror-toggle">
+                    <input type="checkbox" id="showBoxCheckbox" checked>
+                    显示检测框
+                </label>
+                <span class="source-status" id="sourceStatus">输入源：摄像头</span>
+            </div>
+
+            <div class="controls">
+                <label for="streamUrlInput">网络流</label>
+                <input
+                    class="stream-input"
+                    id="streamUrlInput"
+                    type="url"
+                    placeholder="填 HLS/HTTP 地址，例如 /Device/stream/stream.m3u8"
+                >
+                <button class="mode-toggle primary" id="startStreamBtn" title="打开网络视频流">打开网络流</button>
+            </div>
+        </section>
+
+        <section class="stage-grid">
+            <div class="video-stage">
+                <div class="stage-toolbar">
+                    <span class="status loading" id="status">加载模型中...</span>
+                    <span class="classroom-status away" id="classroomStatus">课堂状态：离开</span>
+                </div>
+                <div class="container">
+                    <video id="video" autoplay muted playsinline></video>
+                    <canvas id="canvas"></canvas>
+                </div>
+            </div>
+
+            <aside class="metrics-panel" aria-label="实时指标">
+                <div class="metric-tile primary">
+                    <span class="metric-label">当前人数</span>
+                    <strong id="faceCount">检测到: 0 人</strong>
+                </div>
+                <div class="metric-tile">
+                    <span class="metric-label">课堂时间</span>
+                    <strong id="stateDuration">课堂时间：--</strong>
+                </div>
+                <div class="metric-tile">
+                    <span class="metric-label">处理帧率</span>
+                    <strong id="fps">FPS: --</strong>
+                </div>
+                <div class="metric-tile">
+                    <span class="metric-label">视频与模型</span>
+                    <strong id="debugVideoSize">视频: --</strong>
+                </div>
+                <div class="debug-info" id="debugInfo">
+                    <span id="debugLastScore">最后置信度: --</span>
+                    <span id="debugEngine">引擎: MediaPipe</span>
+                </div>
+            </aside>
+        </section>
+
+        <section class="analytics-panel" id="analyticsPanel">
+            <div class="analytics-header">
+                <div class="analytics-title">状态统计</div>
+                <div class="analytics-summary" id="stateSummary">
+                    <span class="analytics-chip">当前：0 人</span>
+                    <span class="analytics-chip">累计：0 人</span>
+                </div>
+            </div>
+            <table class="analytics-table">
+                <thead>
+                    <tr>
+                        <th>人员</th>
+                        <th>当前状态</th>
+                        <th>抬头</th>
+                        <th>看桌面</th>
+                        <th>疑似睡觉</th>
+                        <th>无法判断</th>
+                        <th>可见总时长</th>
+                    </tr>
+                </thead>
+                <tbody id="personStatsBody">
+                    <tr><td colspan="7" class="muted">等待检测数据...</td></tr>
+                </tbody>
+            </table>
+        </section>
+    </main>
 
     <div class="permission-help" id="permissionHelp">
         摄像头权限被浏览器拒绝了。请点击地址栏左侧的网站权限图标，把摄像头改为“允许”，然后刷新页面或点击下面按钮。
@@ -472,6 +893,10 @@
         const sourceStatus = document.getElementById('sourceStatus');
         const stateSummaryEl = document.getElementById('stateSummary');
         const personStatsBody = document.getElementById('personStatsBody');
+        const classSessionBtn = document.getElementById('classSessionBtn');
+        const classSessionChip = document.getElementById('classSessionChip');
+        const backendStatusChip = document.getElementById('backendStatusChip');
+        const classSessionDetail = document.getElementById('classSessionDetail');
 
         // ========== MediaPipe 配置 ==========
         const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
@@ -497,22 +922,38 @@
 
         // 状态时长追踪
         let currentClassroomState = 'away';
-        let stateChangedAt = Date.now();
+        let stateChangedAt = null;
+        let classStartedAt = null;
         let durationTimerStarted = false;
 
         // 检测模式：'normal' | 'classroom'
         // ---- 检测模式 ----
         let detectionMode = 'normal';
-        const GRID_COLS = 4;
-        const GRID_ROWS = 3;
-        const DETECT_INTERVAL_MS = 700;
-        const GRID_OVERLAP_RATIO = 0.18;
-        const GRID_FACE_SCALE = 1.65;
-        const GRID_POSE_SCALE = 1.45;
-        const GRID_MAX_TILE_SIDE = 960;
-        const GRID_TILES_PER_CYCLE = 3;
-        const GRID_RESULT_TTL_MS = 2500;
-        const POSE_DETECT_INTERVAL_MS = 1600;
+        const GRID_COLS = 5;
+        const GRID_ROWS = 4;
+        const DETECT_INTERVAL_MS = 500;
+        const GRID_OVERLAP_RATIO = 0.25;
+        const GRID_FACE_SCALE = 2.2;
+        const GRID_MAX_TILE_SIDE = 1024;
+        const GRID_TILES_PER_CYCLE = 4;
+        const GRID_RESULT_TTL_MS = 3200;
+        const POSE_DETECT_INTERVAL_MS = 2400;
+        const POSE_INPUT_MAX_SIDE = 960;
+        const FACE_LANDMARKER_INTERVAL_MS = 1200;
+        const FACE_LANDMARKER_MAX_PER_FRAME = 4;
+        const MAX_FACE_TRACKS = 100;
+        const DEBUG_LOG_MAX_PEOPLE = 12;
+        const ANALYTICS_TABLE_MAX_ROWS = 40;
+        const DEPTH_ZONES = [
+            { name: 'back', label: '远区', yMin: 0.00, yMax: 0.32, scale: 2.6, minW: 14, minH: 14, reliableW: 52, reliableH: 52, minConf: 0.22 },
+            { name: 'middle', label: '中区', yMin: 0.32, yMax: 0.58, scale: 2.0, minW: 18, minH: 18, reliableW: 60, reliableH: 60, minConf: 0.26 },
+            { name: 'front', label: '近区', yMin: 0.58, yMax: 1.01, scale: 1.4, minW: 28, minH: 28, reliableW: 76, reliableH: 76, minConf: 0.35 }
+        ];
+        const FACE_IGNORE_ZONES = [
+            // 只屏蔽画面里的吊屏区域，不能整条屏蔽顶部，否则后排学生的人脸会被过滤掉。
+            { name: 'left-hanging-screen', x: 0.18, y: 0.0, width: 0.25, height: 0.17 },
+            { name: 'right-hanging-screen', x: 0.62, y: 0.0, width: 0.38, height: 0.17 }
+        ];
         let lastDetectTime = 0;
         let lastDetections = [];
         let lastDetectionsTimestamp = 0;
@@ -522,12 +963,36 @@
         let lastPoseDetectTime = 0;
         let lastPoses = [];
         let lastPosesTimestamp = 0;
-        const CACHE_MAX_AGE_MS = 2600; // 分块轮询时保留最近几轮结果
+        let lastFaceLandmarkerAt = 0;
+        const CACHE_MAX_AGE_MS = 1800; // 非检测帧沿用上一帧合并结果
+        const gridTileDetectionCache = new Map(); // 按 tile 替换结果，避免前后排轮询时互相闪烁
 
         // 尺寸阈值（按模式）
-        function getFaceThresholds() {
+        function getDepthZoneByNormalizedY(y) {
+            const normalizedY = Math.max(0, Math.min(1, y));
+            return DEPTH_ZONES.find(zone => normalizedY >= zone.yMin && normalizedY < zone.yMax) || DEPTH_ZONES[1];
+        }
+
+        function getDepthZoneForTile(tile, fullH) {
+            const centerY = (tile.srcY + tile.srcH / 2) / Math.max(fullH, 1);
+            return getDepthZoneByNormalizedY(centerY);
+        }
+
+        function getDepthZoneForBox(box, fullH = video.videoHeight || canvas.height || 1) {
+            const centerY = (box.originY + box.height / 2) / Math.max(fullH, 1);
+            return getDepthZoneByNormalizedY(centerY);
+        }
+
+        function getFaceThresholds(zone = null) {
             if (detectionMode === 'classroom') {
-                return { minW: 16, minH: 16, reliableW: 64, reliableH: 64, minConf: 0.18 };
+                const z = zone || DEPTH_ZONES[1];
+                return {
+                    minW: z.minW,
+                    minH: z.minH,
+                    reliableW: z.reliableW,
+                    reliableH: z.reliableH,
+                    minConf: z.minConf
+                };
             }
             return { minW: 45, minH: 45, reliableW: 90, reliableH: 90, minConf: 0.45 };
         }
@@ -535,19 +1000,28 @@
         // 跟踪状态：EMA 平滑 + 帧计数
         // trackedFaces: Map<id, { box, score, confirmed, lost, keypoints }>
         let trackedFaces = [];
-        const CONFIRM_FRAMES = 3;   // 连续 3 帧才显示
-        const LOST_FRAMES = 5;      // 连续 5 帧丢失才移除
-        const EMA_ALPHA = 0.3;      // x/y 平滑系数
-        const EMA_SIZE_ALPHA = 0.7;  // w/h 平滑系数（更高=更快跟随变化）
-        let debugRawDetection = true; // true=跳过跟踪直接画 raw box（调试用）
+        const CONFIRM_FRAMES = 2;   // 连续 2 帧才显示，过滤单帧误检同时保留响应速度
+        const LOST_FRAMES = 3;      // 连续 3 帧丢失才移除，减少移动时旧框残留
+        const EMA_ALPHA = 0.45;      // x/y 平滑系数
+        const EMA_SIZE_ALPHA = 0.85;  // w/h 平滑系数（更高=更快跟随变化）
+        const TRACK_MIN_CENTER_DISTANCE = 28;
+        const TRACK_CENTER_MATCH_RATIO = 0.9;
+        const DUP_MIN_CENTER_DISTANCE = 18;
+        const DUP_CENTER_MATCH_RATIO = 0.58;
+        let debugRawDetection = false; // true=跳过跟踪直接画 raw box（调试用）
         let nextFaceId = 0;
         let showDetectionBox = true; // 显示检测框开关
         let latestStatusPayload = null;
         const DEVICE_ID = 'camera-01';
         const CLASS_ID = 1;
-        const BACKEND_STATUS_ENDPOINT = ''; // 后端接口准备位，例如: http://localhost:8000/api/classroom/status
+        const BACKEND_STATUS_ENDPOINT = 'http://10.180.17.57:8000/api/classes/1/device-events'; // 后端接口准备位，例如: http://localhost:8000/api/classroom/status
         const BACKEND_POST_INTERVAL_MS = 1000;
         let lastBackendPostAt = 0;
+        let classSessionActive = false;
+        let classSessionId = null;
+        let classSessionStartedAt = null;
+        let classSessionEndedAt = null;
+        let classEndedAt = null;
 
         // 数据统计：和画框/模型解耦，专门负责人数与每人状态时长
         const STUDY_STATES = ['抬头', '看桌面', '疑似睡觉', '无法判断'];
@@ -562,6 +1036,16 @@
         // 调试
         let debugLastLog = 0;
         let lastConfidence = null;
+
+        // 复用离屏 canvas，避免大教室模式每帧反复创建大对象造成卡顿和内存抖动。
+        const frameCanvas = document.createElement('canvas');
+        const frameCtx = frameCanvas.getContext('2d', { willReadFrequently: true });
+        const tileCanvas = document.createElement('canvas');
+        const tileCtx = tileCanvas.getContext('2d', { willReadFrequently: true });
+        const poseCanvas = document.createElement('canvas');
+        const poseCtx = poseCanvas.getContext('2d', { willReadFrequently: true });
+        const faceCropCanvas = document.createElement('canvas');
+        const faceCropCtx = faceCropCanvas.getContext('2d', { willReadFrequently: true });
 
         // ========== 课堂状态 ==========
         function updateClassroomStatus(faceCount) {
@@ -590,20 +1074,19 @@
                 classroomStatusEl.textContent = labels[state];
                 currentClassroomState = state;
                 stateChangedAt = Date.now();
-                updateDurationDisplay();
             }
         }
 
         function updateDurationDisplay() {
-            if (!stateChangedAt) {
-                stateDurationEl.textContent = '持续：--';
+            if (!classStartedAt) {
+                stateDurationEl.textContent = '课堂时间：--';
                 return;
             }
-            const elapsed = Math.floor((Date.now() - stateChangedAt) / 1000);
+            const endTime = classSessionActive ? Date.now() : (classEndedAt || Date.now());
+            const elapsed = Math.floor((endTime - classStartedAt) / 1000);
             const mm = Math.floor(elapsed / 60);
             const ss = elapsed % 60;
-            stateDurationEl.textContent = `持续：${mm}分${String(ss).padStart(2, '0')}秒`;
-            console.log(`⏱ 持续时间刷新: ${mm}分${String(ss).padStart(2, '0')}秒 (stateChangedAt=${stateChangedAt})`);
+            stateDurationEl.textContent = `课堂时间：${mm}分${String(ss).padStart(2, '0')}秒`;
         }
 
         // 立即启动持续时间刷新定时器（不依赖 main 异步流程）
@@ -629,16 +1112,20 @@
             lastDetectionsTimestamp = 0;
             lastDetectTime = 0;
             rollingGridDetections = [];
+            gridTileDetectionCache.clear();
             gridTileCursor = 0;
             gridCycleCount = 0;
             lastPoses = [];
             lastPosesTimestamp = 0;
             lastPoseDetectTime = 0;
+            lastFaceLandmarkerAt = 0;
             trackedFaces = [];
             analyticsTracks = [];
             nextAnalyticsId = 1;
             latestAnalyticsSnapshot = null;
             noFaceSince = null;
+            stateChangedAt = null;
+            updateDurationDisplay();
             ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
 
@@ -868,11 +1355,27 @@
         const LM_RIGHT_EYE = 263;   // right eye outer corner
 
         // ---- 工具：video → canvas ----
-        function videoToCanvas(targetCanvas) {
-            const targetCtx = targetCanvas.getContext('2d', { willReadFrequently: true });
-            targetCanvas.width = video.videoWidth;
-            targetCanvas.height = video.videoHeight;
-            targetCtx.drawImage(video, 0, 0);
+        function resizeCanvasIfNeeded(targetCanvas, width, height) {
+            if (targetCanvas.width !== width) targetCanvas.width = width;
+            if (targetCanvas.height !== height) targetCanvas.height = height;
+        }
+
+        function videoToCanvas(targetCanvas, targetCtx, maxSide = 0) {
+            const srcW = video.videoWidth;
+            const srcH = video.videoHeight;
+            if (!srcW || !srcH) return targetCanvas;
+
+            let targetW = srcW;
+            let targetH = srcH;
+            if (maxSide > 0) {
+                const scale = Math.min(1, maxSide / Math.max(srcW, srcH));
+                targetW = Math.max(1, Math.round(srcW * scale));
+                targetH = Math.max(1, Math.round(srcH * scale));
+            }
+
+            resizeCanvasIfNeeded(targetCanvas, targetW, targetH);
+            targetCtx.drawImage(video, 0, 0, targetW, targetH);
+            return targetCanvas;
         }
 
         // ---- 工具：在 canvas 上检测人脸 ----
@@ -895,10 +1398,10 @@
             };
         }
 
-        function mapTileDetection(det, srcX, srcY, srcW, srcH, scale, row, col) {
+        function mapTileDetection(det, srcX, srcY, srcW, srcH, scale, row, col, zone, fullW, fullH) {
             const box = det.boundingBox;
             const isNormalizedBox = box.width <= 1 && box.height <= 1;
-            const mappedBox = isNormalizedBox
+            const rawMappedBox = isNormalizedBox
                 ? {
                     originX: srcX + box.originX * srcW,
                     originY: srcY + box.originY * srcH,
@@ -911,6 +1414,7 @@
                     width: box.width / scale,
                     height: box.height / scale
                 };
+            const mappedBox = clampBox(rawMappedBox, fullW, fullH);
 
             const mappedKeypoints = det.keypoints ? det.keypoints.map(kp => {
                 if (kp.x <= 1 && kp.y <= 1) {
@@ -923,6 +1427,8 @@
                 _gridRow: row,
                 _gridCol: col,
                 _tileScale: scale,
+                _zone: zone?.name || 'middle',
+                _zoneLabel: zone?.label || '中区',
                 _source: 'tile'
             });
         }
@@ -958,6 +1464,29 @@
             return tiles;
         }
 
+        function getBalancedTilesThisCycle(tiles) {
+            const tilesByRow = Array.from({ length: GRID_ROWS }, () => []);
+            tiles.forEach(tile => {
+                if (tilesByRow[tile.row]) tilesByRow[tile.row].push(tile);
+            });
+            tilesByRow.forEach(rowTiles => rowTiles.sort((a, b) => a.col - b.col));
+
+            const colsPerCycle = Math.max(1, Math.ceil(GRID_TILES_PER_CYCLE / GRID_ROWS));
+            const selected = [];
+
+            for (let colOffset = 0; colOffset < colsPerCycle && selected.length < GRID_TILES_PER_CYCLE; colOffset++) {
+                const col = (gridTileCursor + colOffset) % GRID_COLS;
+                for (let row = 0; row < GRID_ROWS && selected.length < GRID_TILES_PER_CYCLE; row++) {
+                    const rowTiles = tilesByRow[row];
+                    if (!rowTiles.length) continue;
+                    selected.push(rowTiles.find(tile => tile.col === col) || rowTiles[col % rowTiles.length]);
+                }
+            }
+
+            gridTileCursor = (gridTileCursor + colsPerCycle) % GRID_COLS;
+            return selected;
+        }
+
         // ---- 大教室模式：全图 + 重叠分块 + 放大检测 ----
         async function detectGrid(now) {
             const fullW = video.videoWidth;
@@ -965,11 +1494,7 @@
             if (!fullW || !fullH) return [];
 
             // 1) video → 全幅 canvas
-            const fullCanvas = document.createElement('canvas');
-            const fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
-            fullCanvas.width = fullW;
-            fullCanvas.height = fullH;
-            fullCtx.drawImage(video, 0, 0);
+            const fullCanvas = videoToCanvas(frameCanvas, frameCtx);
 
             const allDetections = [];
             const tiles = getGridTiles(fullW, fullH);
@@ -977,50 +1502,62 @@
             // 全图检测低频跑，补近处/大脸；分块检测轮询跑，避免一次处理 12 个 tile 卡崩。
             if (gridCycleCount % 4 === 0) {
                 const fullResult = await detectOnCanvas(fullCanvas);
+                const fullDetections = [];
                 if (fullResult.detections) {
                     fullResult.detections.forEach(det => {
-                        allDetections.push(cloneDetectionWithBox(det, { ...det.boundingBox }, det.keypoints, { _source: 'full', _seenAt: now }));
+                        const box = clampBox({ ...det.boundingBox }, fullW, fullH);
+                        const zone = getDepthZoneForBox(box, fullH);
+                        fullDetections.push(cloneDetectionWithBox(det, box, det.keypoints, {
+                            _source: 'full',
+                            _seenAt: now,
+                            _zone: zone.name,
+                            _zoneLabel: zone.label
+                        }));
                     });
                 }
+                gridTileDetectionCache.set('full', { updatedAt: now, detections: fullDetections });
             }
 
-            const tilesThisCycle = [];
-            for (let i = 0; i < Math.min(GRID_TILES_PER_CYCLE, tiles.length); i++) {
-                tilesThisCycle.push(tiles[(gridTileCursor + i) % tiles.length]);
-            }
-            gridTileCursor = (gridTileCursor + GRID_TILES_PER_CYCLE) % tiles.length;
+            const tilesThisCycle = getBalancedTilesThisCycle(tiles);
             gridCycleCount++;
 
             // 2) 逐步分块放大检测。小脸会在 tile 内变大，远景监控更容易检出。
             for (const tile of tilesThisCycle) {
-                const scale = Math.min(GRID_FACE_SCALE, GRID_MAX_TILE_SIDE / Math.max(tile.srcW, tile.srcH));
+                const zone = getDepthZoneForTile(tile, fullH);
+                const scale = Math.min(zone.scale, GRID_MAX_TILE_SIDE / Math.max(tile.srcW, tile.srcH));
                 const scaledW = Math.max(1, Math.round(tile.srcW * scale));
                 const scaledH = Math.max(1, Math.round(tile.srcH * scale));
-                const tileCanvas = document.createElement('canvas');
-                tileCanvas.width = scaledW;
-                tileCanvas.height = scaledH;
-                const tileCtx = tileCanvas.getContext('2d', { willReadFrequently: true });
+                resizeCanvasIfNeeded(tileCanvas, scaledW, scaledH);
                 tileCtx.imageSmoothingEnabled = true;
                 tileCtx.imageSmoothingQuality = 'medium';
                 tileCtx.drawImage(fullCanvas, tile.srcX, tile.srcY, tile.srcW, tile.srcH, 0, 0, scaledW, scaledH);
 
                 const result = await detectOnCanvas(tileCanvas);
+                const tileDetections = [];
                 if (result.detections) {
                     for (const det of result.detections) {
-                        allDetections.push({
-                            ...mapTileDetection(det, tile.srcX, tile.srcY, tile.srcW, tile.srcH, scale, tile.row, tile.col),
+                        tileDetections.push({
+                            ...mapTileDetection(det, tile.srcX, tile.srcY, tile.srcW, tile.srcH, scale, tile.row, tile.col, zone, fullW, fullH),
                             _seenAt: now
                         });
                     }
                 }
+                gridTileDetectionCache.set(`tile-${tile.row}-${tile.col}`, {
+                    updatedAt: now,
+                    detections: tileDetections
+                });
             }
 
-            rollingGridDetections = rollingGridDetections
-                .filter(det => now - (det._seenAt || 0) <= GRID_RESULT_TTL_MS)
-                .concat(allDetections);
+            gridTileDetectionCache.forEach((bucket, key) => {
+                if (now - bucket.updatedAt > GRID_RESULT_TTL_MS) {
+                    gridTileDetectionCache.delete(key);
+                    return;
+                }
+                allDetections.push(...bucket.detections);
+            });
 
-            // 3) 去重：合并最近几轮检测结果。这里不限制人数，只清理重复框和过期框。
-            return mergeDetections(rollingGridDetections);
+            // 3) 去重：合并所有 tile 的最新结果。每个 tile 被重算时会替换旧结果，不再叠残影框。
+            return mergeDetections(allDetections);
         }
 
         /*
@@ -1073,11 +1610,17 @@
         function mergeDetections(detections) {
             if (detections.length <= 1) return detections;
 
-            // 按置信度降序排列
+            // 优先保留更新、更可信的框；旧 tile 结果只作为补盲，不能长期压住新位置。
             detections.sort((a, b) => {
                 const sa = a.categories?.[0]?.score ?? 0;
                 const sb = b.categories?.[0]?.score ?? 0;
-                return sb - sa;
+                const ta = a._seenAt || 0;
+                const tb = b._seenAt || 0;
+                if (Math.abs(tb - ta) > 450) return tb - ta;
+                if (Math.abs(sb - sa) > 0.04) return sb - sa;
+                const areaA = (a.boundingBox?.width || 0) * (a.boundingBox?.height || 0);
+                const areaB = (b.boundingBox?.width || 0) * (b.boundingBox?.height || 0);
+                return areaB - areaA;
             });
 
             const merged = [];
@@ -1106,14 +1649,21 @@
 
                     const overlap = unionArea > 0 ? interArea / unionArea : 0;
                     const containment = smallerArea > 0 ? interArea / smallerArea : 0;
+                    const areaA = boxA.width * boxA.height;
+                    const areaB = boxB.width * boxB.height;
+                    const areaRatio = Math.min(areaA, areaB) / Math.max(areaA, areaB, 1);
+                    const dist = centerDistance(boxA, boxB);
+                    const maxSide = Math.max(boxA.width, boxA.height, boxB.width, boxB.height);
+                    const dynamicCenterLimit = Math.max(DUP_MIN_CENTER_DISTANCE, maxSide * DUP_CENTER_MATCH_RATIO);
+                    const duplicateByCenter = dist <= dynamicCenterLimit && areaRatio >= 0.36;
 
-                    if (overlap > 0.38 || containment > 0.72) {
+                    if (overlap > 0.30 || containment > 0.72 || duplicateByCenter) {
                         suppressed.add(j);
                     }
                 }
             }
 
-            return merged;
+            return merged.slice(0, MAX_FACE_TRACKS * 2);
         }
 
         // ========== 头部姿态估计（Face Landmarker） ==========
@@ -1221,11 +1771,10 @@
             const fx = Math.max(0, Math.floor(faceBox.originX));
             const fy = Math.max(0, Math.floor(faceBox.originY));
             const fw = Math.ceil(faceBox.width), fh = Math.ceil(faceBox.height);
-            const fc = document.createElement('canvas'); fc.width = fw; fc.height = fh;
-            const fctx = fc.getContext('2d', { willReadFrequently: true });
-            fctx.drawImage(sourceCanvas, fx, fy, fw, fh, 0, 0, fw, fh);
+            resizeCanvasIfNeeded(faceCropCanvas, fw, fh);
+            faceCropCtx.drawImage(sourceCanvas, fx, fy, fw, fh, 0, 0, fw, fh);
             try {
-                const r = faceLandmarker.detect(fc);
+                const r = faceLandmarker.detect(faceCropCanvas);
                 if (r.faceLandmarks && r.faceLandmarks.length > 0) {
                     const matrix = r.facialTransformationMatrixes?.[0] || r.facialTransformationMatrixes?.[0]?.data;
                     return estimateHeadPoseFromLandmarks(r.faceLandmarks[0], matrix);
@@ -1310,6 +1859,11 @@
             }
 
             return mergePoses(poses, fullW, fullH);
+        }
+
+        function shouldRefreshPoses(now) {
+            const interval = detectionMode === 'classroom' ? POSE_DETECT_INTERVAL_MS : 300;
+            return now - lastPoseDetectTime >= interval;
         }
 
         async function getCachedPoses(sourceCanvas, now) {
@@ -1550,6 +2104,24 @@
             return Math.hypot(a.x - b.x, a.y - b.y);
         }
 
+        function boxArea(box) {
+            return Math.max(1, box.width * box.height);
+        }
+
+        function faceTrackMatchScore(oldBox, newBox) {
+            const overlap = iou(oldBox, newBox);
+            const dist = centerDistance(oldBox, newBox);
+            const maxSide = Math.max(oldBox.width, oldBox.height, newBox.width, newBox.height);
+            const centerLimit = Math.max(TRACK_MIN_CENTER_DISTANCE, maxSide * TRACK_CENTER_MATCH_RATIO);
+            const centerScore = Math.max(0, 1 - dist / centerLimit);
+            const areaRatio = Math.min(boxArea(oldBox), boxArea(newBox)) / Math.max(boxArea(oldBox), boxArea(newBox));
+
+            // 既不重叠、中心又离得远，就不要强行合并，避免把邻座同学算成同一个人。
+            if (overlap < 0.08 && centerScore < 0.22) return 0;
+            if (areaRatio < 0.25 && overlap < 0.18) return 0;
+            return overlap * 1.8 + centerScore * 0.9 + areaRatio * 0.25;
+        }
+
         function addVisibleDuration(track, nowMs) {
             if (!track || !track.lastUpdatedAt) return;
             const elapsed = Math.max(0, nowMs - track.lastUpdatedAt);
@@ -1631,7 +2203,7 @@
                         track.currentState = currentState;
                         track.stateChangedAt = nowMs;
                     }
-                    track.box = smoothBox(track.box, face.box);
+                    track.box = smoothBoxAdaptive(track.box, face.box);
                     track.lastSeenAt = nowMs;
                     track.active = true;
                     track.source = face.source || (face._class === 'pose' ? 'pose-only' : 'face');
@@ -1730,7 +2302,10 @@
                 return;
             }
 
-            personStatsBody.innerHTML = snapshot.people.map(person => {
+            const visiblePeople = snapshot.people.slice(0, ANALYTICS_TABLE_MAX_ROWS);
+            const extraCount = Math.max(0, snapshot.people.length - visiblePeople.length);
+
+            personStatsBody.innerHTML = visiblePeople.map(person => {
                 const status = person.active ? person.state : `${person.state} / 暂离`;
                 return `
                     <tr>
@@ -1743,21 +2318,53 @@
                         <td>${formatDuration(person.visibleMs)}</td>
                     </tr>
                 `;
-            }).join('');
+            }).join('') + (extraCount > 0
+                ? `<tr><td colspan="7" class="muted">还有 ${extraCount} 人未在表格展示，统计和 JSON 仍包含全部人数。</td></tr>`
+                : '');
         }
 
-        function smoothBox(oldBox, newBox) {
+        function clampBox(box, vw, vh) {
+            const x = Math.max(0, Math.min(vw, box.originX));
+            const y = Math.max(0, Math.min(vh, box.originY));
+            const r = Math.max(x, Math.min(vw, box.originX + box.width));
+            const b = Math.max(y, Math.min(vh, box.originY + box.height));
+            return { originX: x, originY: y, width: Math.max(1, r - x), height: Math.max(1, b - y) };
+        }
+
+        function isBoxInIgnoreZone(box, videoW = video.videoWidth || canvas.width || 1, videoH = video.videoHeight || canvas.height || 1) {
+            const centerX = (box.originX + box.width / 2) / Math.max(videoW, 1);
+            const centerY = (box.originY + box.height / 2) / Math.max(videoH, 1);
+            return FACE_IGNORE_ZONES.some(zone =>
+                centerX >= zone.x &&
+                centerX <= zone.x + zone.width &&
+                centerY >= zone.y &&
+                centerY <= zone.y + zone.height
+            );
+        }
+
+        function smoothBoxAdaptive(oldBox, newBox) {
             if (!oldBox) return { originX: newBox.originX, originY: newBox.originY, width: newBox.width, height: newBox.height };
+            const oldArea = oldBox.width * oldBox.height;
+            const newArea = newBox.width * newBox.height;
+            const areaRatio = Math.abs(newArea - oldArea) / Math.max(oldArea, 1);
+            // 人靠近/远离时面积变化大，直接使用新框
+            if (areaRatio > 0.35) return { originX: newBox.originX, originY: newBox.originY, width: newBox.width, height: newBox.height };
             return {
-                originX: oldBox.originX * (1 - EMA_ALPHA) + newBox.originX * EMA_ALPHA,
-                originY: oldBox.originY * (1 - EMA_ALPHA) + newBox.originY * EMA_ALPHA,
-                width:   oldBox.width   * (1 - EMA_SIZE_ALPHA) + newBox.width   * EMA_SIZE_ALPHA,
-                height:  oldBox.height  * (1 - EMA_SIZE_ALPHA) + newBox.height  * EMA_SIZE_ALPHA,
+                originX: oldBox.originX * 0.55 + newBox.originX * 0.45,
+                originY: oldBox.originY * 0.55 + newBox.originY * 0.45,
+                width:   oldBox.width   * 0.15 + newBox.width   * 0.85,
+                height:  oldBox.height  * 0.15 + newBox.height  * 0.85,
             };
         }
 
-        function classifyDetection(box, score) {
-            const t = getFaceThresholds();
+        function classifyDetection(box, score, zoneName = null) {
+            if (detectionMode === 'classroom' && isBoxInIgnoreZone(box)) return 'ignore';
+            const zone = zoneName
+                ? DEPTH_ZONES.find(z => z.name === zoneName)
+                : getDepthZoneForBox(box);
+            const t = getFaceThresholds(zone);
+            const ratio = box.width / Math.max(box.height, 1);
+            if (ratio < 0.58 || ratio > 1.62) return 'ignore';
             if (box.width < t.minW || box.height < t.minH) return 'ignore';
             if (score < t.minConf) return 'ignore';
             if (box.width >= t.reliableW && box.height >= t.reliableH && score >= 0.5) return 'reliable';
@@ -1772,9 +2379,16 @@
             for (const det of rawDetections) {
                 const box = det.boundingBox;
                 const score = det.categories?.[0]?.score ?? 0;
-                const cls = classifyDetection(box, score);
+                const cls = classifyDetection(box, score, det._zone);
                 if (cls === 'ignore') continue;
-                valid.push({ box: det.boundingBox, score, keypoints: det.keypoints || null, _class: cls });
+                valid.push({
+                    box: det.boundingBox,
+                    score,
+                    keypoints: det.keypoints || null,
+                    _class: cls,
+                    _zone: det._zone || getDepthZoneForBox(box).name,
+                    _zoneLabel: det._zoneLabel || getDepthZoneForBox(box).label
+                });
             }
 
             // 2) 匹配已有 track
@@ -1782,20 +2396,25 @@
             const updated = [];
 
             for (const track of trackedFaces) {
-                let bestIoU = 0.3;
+                let bestScore = 0.45;
                 let bestIdx = -1;
                 for (let i = 0; i < valid.length; i++) {
                     if (matched.has(i)) continue;
-                    const iouVal = iou(track.box, valid[i].box);
-                    if (iouVal > bestIoU) { bestIoU = iouVal; bestIdx = i; }
+                    const matchScore = faceTrackMatchScore(track.box, valid[i].box);
+                    if (matchScore > bestScore) {
+                        bestScore = matchScore;
+                        bestIdx = i;
+                    }
                 }
                 if (bestIdx >= 0) {
                     matched.add(bestIdx);
                     const v = valid[bestIdx];
-                    track.box = smoothBox(track.box, v.box);
+                    track.box = smoothBoxAdaptive(track.box, v.box);
                     track.score = v.score;
                     track.keypoints = v.keypoints;
                     track._class = v._class;
+                    track._zone = v._zone;
+                    track._zoneLabel = v._zoneLabel;
                     track.confirmed = Math.min(track.confirmed + 1, CONFIRM_FRAMES);
                     track.lost = 0;
                     // 学习状态：每帧推导候选（DEBUG：直接赋值）
@@ -1830,6 +2449,8 @@
                     score: v.score,
                     keypoints: v.keypoints,
                     _class: v._class,
+                    _zone: v._zone,
+                    _zoneLabel: v._zoneLabel,
                     confirmed: 1,
                     lost: 0,
                     studyState: '无法判断',
@@ -2038,6 +2659,135 @@
             };
         }
 
+        function getEmptySummary() {
+            return { total: 0, headUp: 0, desk: 0, sleepLike: 0, unknown: 0 };
+        }
+
+        function buildSessionEventPayload(eventType) {
+            const base = latestStatusPayload || {
+                deviceId: DEVICE_ID,
+                classId: CLASS_ID,
+                capturedAt: new Date().toISOString(),
+                windowSeconds: BACKEND_POST_INTERVAL_MS / 1000,
+                frameInfo: {
+                    fps,
+                    width: video.videoWidth || 0,
+                    height: video.videoHeight || 0
+                },
+                summary: getEmptySummary(),
+                people: []
+            };
+            const summary = eventType === 'class_start'
+                ? getEmptySummary()
+                : (base.summary || getEmptySummary());
+
+            return {
+                ...base,
+                capturedAt: new Date().toISOString(),
+                windowSeconds: BACKEND_POST_INTERVAL_MS / 1000,
+                frameInfo: base.frameInfo || {
+                    fps,
+                    width: video.videoWidth || 0,
+                    height: video.videoHeight || 0
+                },
+                summary,
+                people: [],
+            };
+        }
+
+        function decoratePayloadWithSession(payload, eventType) {
+            return {
+                ...payload,
+                eventType,
+                classActive: classSessionActive,
+                sessionId: classSessionId,
+                sessionStartedAt: classSessionStartedAt,
+                sessionEndedAt: eventType === 'class_end' ? classSessionEndedAt : null
+            };
+        }
+
+        function setBackendStatus(kind, text) {
+            backendStatusChip.className = `backend-chip ${kind}`;
+            backendStatusChip.textContent = text;
+        }
+
+        async function postBackendPayload(payload, successText = '后端：已发送') {
+            if (!BACKEND_STATUS_ENDPOINT) {
+                setBackendStatus('idle', '后端：未配置');
+                return;
+            }
+
+            try {
+                setBackendStatus('sending', '后端：发送中');
+                const response = await fetch(BACKEND_STATUS_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                setBackendStatus('ok', successText);
+            } catch (err) {
+                setBackendStatus('error', '后端：发送失败');
+                console.warn('状态数据发送失败:', err.message || err);
+            }
+        }
+
+        function updateClassSessionUi() {
+            if (classSessionActive) {
+                classSessionBtn.textContent = '下课';
+                classSessionBtn.classList.add('active');
+                classSessionChip.textContent = '上课中';
+                classSessionChip.className = 'session-chip active';
+                classSessionDetail.textContent = `会话：${classSessionId}`;
+                return;
+            }
+
+            classSessionBtn.textContent = '开始上课';
+            classSessionBtn.classList.remove('active');
+            if (classSessionEndedAt) {
+                classSessionChip.textContent = '已下课';
+                classSessionChip.className = 'session-chip ended';
+                classSessionDetail.textContent = `上次下课：${new Date(classSessionEndedAt).toLocaleTimeString()}`;
+            } else {
+                classSessionChip.textContent = '未上课';
+                classSessionChip.className = 'session-chip idle';
+                classSessionDetail.textContent = '连接视频后可先预览识别结果，点击开始上课才会发送数据。';
+            }
+        }
+
+        async function sendClassSessionEvent(eventType) {
+            const payload = decoratePayloadWithSession(buildSessionEventPayload(eventType), eventType);
+            const labels = {
+                class_start: '后端：已开始',
+                class_tick: '后端：已同步',
+                class_end: '后端：已下课'
+            };
+            await postBackendPayload(payload, labels[eventType] || '后端：已发送');
+        }
+
+        async function startClassSession() {
+            classSessionActive = true;
+            classSessionId = `${DEVICE_ID}-${Date.now()}`;
+            classStartedAt = Date.now();
+            classEndedAt = null;
+            classSessionStartedAt = new Date(classStartedAt).toISOString();
+            classSessionEndedAt = null;
+            lastBackendPostAt = 0;
+            updateClassSessionUi();
+            updateDurationDisplay();
+            await sendClassSessionEvent('class_start');
+        }
+
+        async function endClassSession() {
+            if (!classSessionActive || !classSessionId) return;
+            classEndedAt = Date.now();
+            classSessionEndedAt = new Date(classEndedAt).toISOString();
+            classSessionActive = false;
+            updateClassSessionUi();
+            updateDurationDisplay();
+            await sendClassSessionEvent('class_end');
+        }
+
         function maybeSendStatusPayload(payload, now) {
             latestStatusPayload = payload;
             window.latestClassroomStatusPayload = payload;
@@ -2045,15 +2795,12 @@
             window.latestClassroomAnalytics = latestAnalyticsSnapshot;
             window.getClassroomAnalytics = () => latestAnalyticsSnapshot;
 
+            if (!classSessionActive) return;
             if (!BACKEND_STATUS_ENDPOINT) return;
             if (now - lastBackendPostAt < BACKEND_POST_INTERVAL_MS) return;
             lastBackendPostAt = now;
 
-            fetch(BACKEND_STATUS_ENDPOINT, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            }).catch(err => console.warn('状态数据发送失败:', err.message || err));
+            postBackendPayload(decoratePayloadWithSession(payload, 'class_tick'), '后端：已同步');
         }
 
         // ---- 主检测循环 ----
@@ -2077,7 +2824,8 @@
                 console.log(`📐 canvas 尺寸更新: ${displayWidth}×${displayHeight}`);
             }
 
-            debugVideoSize.textContent = `视频: ${displayWidth}×${displayHeight} | ${detectionMode === 'classroom' ? '大教室4×3轮询' : '普通'} | full_range${debugRawDetection ? ' DEBUG' : ''}`;
+            const zoneInfo = DEPTH_ZONES.map(z => `${z.label}×${z.scale}`).join('/');
+            debugVideoSize.textContent = `视频: ${displayWidth}×${displayHeight} | ${detectionMode === 'classroom' ? `大教室${GRID_COLS}×${GRID_ROWS}前后同步轮询 列${gridTileCursor + 1}/${GRID_COLS} ${zoneInfo}` : '普通'} | full_range${debugRawDetection ? ' DEBUG' : ''} | face-only`;
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -2109,8 +2857,7 @@
             } else {
                 // ---- 普通模式：整帧检测 ----
                 try {
-                    const fullCanvas = document.createElement('canvas');
-                    videoToCanvas(fullCanvas);
+                    const fullCanvas = videoToCanvas(frameCanvas, frameCtx);
                     const result = await detectOnCanvas(fullCanvas);
                     detections = result.detections || [];
                 } catch (e) {
@@ -2128,12 +2875,14 @@
                 for (const det of detections) {
                     const box = det.boundingBox;
                     const score = det.categories?.[0]?.score ?? 0;
-                    const cls = classifyDetection(box, score);
+                    const cls = classifyDetection(box, score, det._zone);
                     if (cls === 'ignore') continue;
                     rawValidCount++;
                     raw.push({
                         box: { originX: box.originX, originY: box.originY, width: box.width, height: box.height },
                         score, keypoints: det.keypoints || null, _class: cls,
+                        _zone: det._zone || getDepthZoneForBox(box).name,
+                        _zoneLabel: det._zoneLabel || getDepthZoneForBox(box).label,
                         confirmed: 0, headPose: null, studyState: '无法判断',
                         _rawBox: `${Math.round(box.width)}×${Math.round(box.height)}`
                     });
@@ -2143,12 +2892,22 @@
                 displayFaces = matchDetections(detections);
             }
 
-            // === Pose Landmarker：全帧一次 → 匹配到各人脸/人体 ===
-            const fc = document.createElement('canvas');
-            videoToCanvas(fc);
-            const poses = await getCachedPoses(fc, now);
-            const canvasW = fc.width, canvasH = fc.height;
+            // === Pose Landmarker：低频全帧 → 匹配到各人脸/人体 ===
+            let poses = [];
+            if (shouldRefreshPoses(now)) {
+                const maxSide = detectionMode === 'classroom' ? POSE_INPUT_MAX_SIDE : 0;
+                const pc = videoToCanvas(poseCanvas, poseCtx, maxSide);
+                poses = await getCachedPoses(pc, now);
+            } else if (now - lastPosesTimestamp <= CACHE_MAX_AGE_MS) {
+                poses = lastPoses;
+            }
+            const canvasW = displayWidth, canvasH = displayHeight;
             const usedPoseIndexes = new Set();
+            let fullFrameForLandmarker = null;
+            let faceLandmarkerBudget = now - lastFaceLandmarkerAt >= FACE_LANDMARKER_INTERVAL_MS
+                ? FACE_LANDMARKER_MAX_PER_FRAME
+                : 0;
+            let faceLandmarkerUsed = 0;
 
             // 诊断：每秒打印 Pose 数量 + 关键点可见性
             if (now - debugLastLog >= 1000) {
@@ -2176,8 +2935,11 @@
                 }
 
                 // Face Landmarker：可靠人脸 ≥90px（作为辅助）
-                if (face._class === 'reliable' && face.box.width >= 90 && face.box.height >= 90) {
-                    face.headPose = await runFaceLandmarkerDirect(fc, face.box);
+                if (faceLandmarkerBudget > 0 && face._class === 'reliable' && face.box.width >= 90 && face.box.height >= 90) {
+                    if (!fullFrameForLandmarker) fullFrameForLandmarker = videoToCanvas(frameCanvas, frameCtx);
+                    face.headPose = await runFaceLandmarkerDirect(fullFrameForLandmarker, face.box);
+                    faceLandmarkerBudget--;
+                    faceLandmarkerUsed++;
                 } else {
                     face.headPose = null;
                 }
@@ -2186,55 +2948,24 @@
                 updateTrackStudyState(face, candidate);
             }
 
-            // Pose-only 人物：能看到身体/肩部，但没检测到清晰脸。
-            poses.forEach((pose, poseIndex) => {
-                if (usedPoseIndexes.has(poseIndex)) return;
-                const poseBox = buildPoseBox(pose, canvasW, canvasH);
-                if (!poseBox || poseBox.width < 28 || poseBox.height < 28) return;
+            if (faceLandmarkerUsed > 0) lastFaceLandmarkerAt = now;
 
-                const overlapsFace = displayFaces.some(face => iou(face.box, poseBox) > 0.18);
-                if (overlapsFace) return;
-
-                const poseState = derivePoseState(pose, canvasW, canvasH) || {
-                    source: 'pose',
-                    state: 'unknown',
-                    label: '无法判断',
-                    detail: '仅检测到人体',
-                    confidence: 0.3
-                };
-                const score = Math.max(0.25, Math.min(0.85, poseAverageVisibility(pose)));
-                const poseOnlyTrack = {
-                    id: `pose-${poseIndex}`,
-                    box: poseBox,
-                    score,
-                    keypoints: null,
-                    _class: 'pose',
-                    confirmed: 0,
-                    lost: 0,
-                    poseLandmarks: pose,
-                    poseState,
-                    headPose: null,
-                    studyState: poseToStudyState(poseState),
-                    studyStateCandidate: poseToStudyState(poseState),
-                    studyStateSince: Date.now(),
-                    source: 'pose-only'
-                };
-                displayFaces.push(poseOnlyTrack);
-            });
-
+            // Pose 仅辅助状态判断，不创建人物 track（face-only）
             const reliableFaces = displayFaces.filter(f => f._class === 'reliable');
             const distantFaces = displayFaces.filter(f => f._class === 'distant');
-            const poseOnlyFaces = displayFaces.filter(f => f._class === 'pose');
 
             // 每秒调试
             if (now - debugLastLog >= 1000) {
-                console.log(`🔍 [${detectionMode}${debugRawDetection ? ' DEBUG' : ''}] full_range | raw:${detections.length} valid:${rawValidCount || displayFaces.length} (可靠:${reliableFaces.length} 远距:${distantFaces.length} 人体:${poseOnlyFaces.length})`);
-                displayFaces.forEach((t, i) => {
+                console.log(`🔍 [${detectionMode}${debugRawDetection ? ' DEBUG' : ''}] face-only | raw:${detections.length} valid:${rawValidCount || displayFaces.length} (可靠:${reliableFaces.length} 远距:${distantFaces.length})`);
+                displayFaces.slice(0, DEBUG_LOG_MAX_PEOPLE).forEach((t, i) => {
                     const ri = t._rawBox ? ` raw:${t._rawBox}` : ` 平滑:${Math.round(t.box.width)}×${Math.round(t.box.height)}`;
                     const hp = t.headPose ? ` [${t.headPose.label}]` : '';
                     const ps = t.poseState ? ` pose=${t.poseState.label}/${t.poseState.detail}` : '';
                     console.log(`  人物 ${i + 1}: ${t._class}${hp}${ps} ${(t.score * 100).toFixed(0)}%${ri} 状态=${t.studyState} 确认${t.confirmed || 0}帧`);
                 });
+                if (displayFaces.length > DEBUG_LOG_MAX_PEOPLE) {
+                    console.log(`  ... 还有 ${displayFaces.length - DEBUG_LOG_MAX_PEOPLE} 人省略日志`);
+                }
                 if (!debugRawDetection && detections.length > 0 && displayFaces.length > 0) {
                     const rb = detections[0].boundingBox;
                     const sb = displayFaces[0].box;
@@ -2247,9 +2978,22 @@
             else lastConfidence = null;
             debugLastScore.textContent = `最后置信度: ${lastConfidence ? (lastConfidence * 100).toFixed(0) + '%' : '--'}`;
 
+            // Face cap：最多 MAX_FACE_TRACKS 张脸
+            if (displayFaces.length > MAX_FACE_TRACKS) {
+                displayFaces.sort((a, b) => {
+                    if ((a._class === 'reliable') !== (b._class === 'reliable')) return a._class === 'reliable' ? -1 : 1;
+                    const scoreDelta = (b.score || 0) - (a.score || 0);
+                    if (Math.abs(scoreDelta) > 0.04) return scoreDelta;
+                    const areaA = (a.box?.width || 0) * (a.box?.height || 0);
+                    const areaB = (b.box?.width || 0) * (b.box?.height || 0);
+                    return areaB - areaA;
+                });
+                displayFaces = displayFaces.slice(0, MAX_FACE_TRACKS);
+            }
+
             const analyticsSnapshot = updateAnalytics(displayFaces, now, displayWidth, displayHeight);
 
-            // 绘制
+            // 绘制（仅脸部检测框）
             displayFaces.forEach(t => drawOneDetection(t, displayWidth));
 
             // UI
@@ -2345,6 +3089,19 @@
             console.log(`👁 显示检测框: ${showDetectionBox ? '开启' : '关闭（仅统计人数）'}`);
         });
 
+        classSessionBtn.addEventListener('click', async () => {
+            classSessionBtn.disabled = true;
+            try {
+                if (classSessionActive) {
+                    await endClassSession();
+                } else {
+                    await startClassSession();
+                }
+            } finally {
+                classSessionBtn.disabled = false;
+            }
+        });
+
         retryCameraBtn.addEventListener('click', async () => {
             try {
                 statusEl.textContent = '⏳ 正在重新请求摄像头...';
@@ -2366,6 +3123,7 @@
         // ========== 主流程 ==========
         (async function main() {
             try {
+                updateClassSessionUi();
                 const params = new URLSearchParams(window.location.search);
                 const streamFromUrl = params.get('stream') || params.get('video');
                 const savedStreamUrl = localStorage.getItem('classroomStreamUrl');

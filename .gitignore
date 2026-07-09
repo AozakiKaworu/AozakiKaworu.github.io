@@ -1,3 +1,5 @@
 .DS_Store
 .claude/
 Device/stream/
+Device/.venv-yolo/
+*.zip
